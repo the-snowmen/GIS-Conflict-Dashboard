@@ -22,3 +22,6 @@ __pycache__/
 *.swp
 .idea/
 .vscode/
+
+# Private scrub blocklist (real proprietary names) — never commit. See .scrub-secret-patterns.example.
+.scrub-secret-patterns
