@@ -1,0 +1,30 @@
+{
+  "name": "gis-conflict-dashboard-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "^1.29.0",
+    "geokit": "file:../../packages/geo-engine/pkg",
+    "maplibre-gl": "^4.7.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "terra-draw": "^1.4.0",
+    "terra-draw-maplibre-gl-adapter": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.14",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vite-plugin-top-level-await": "^1.4.4",
+    "vite-plugin-wasm": "^3.3.0"
+  }
+}
