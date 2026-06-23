@@ -1,0 +1,24 @@
+# Rust
+/target
+**/target/
+packages/geo-engine/pkg/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Build inputs — re-downloaded by scripts/build_demo_db.py; not committed.
+# (The processed GeoParquet under apps/web/public/data/ IS committed.)
+/data/raw/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

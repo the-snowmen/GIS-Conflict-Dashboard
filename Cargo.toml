@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["packages/geo-engine"]
+
+[profile.release]
+# Smaller, faster wasm. lto = "fat" + opt-level "z"/"s" trade size vs speed; "s" keeps
+# geodesy fast enough while shrinking the bundle.
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"

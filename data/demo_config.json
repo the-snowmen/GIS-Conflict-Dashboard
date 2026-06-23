@@ -1,0 +1,15 @@
+{
+  "metro": "austin",
+  "label": "Austin, TX",
+  "selfOwners": [
+    "Operator Alpha"
+  ],
+  "excludedFacilityStatuses": [
+    "retired"
+  ],
+  "ticketStatuses": [
+    "potential_conflict",
+    "no_conflict"
+  ],
+  "note": "Generic owner/status gating expressed as a SQL WHERE clause at query time."
+}
