@@ -25,3 +25,7 @@ __pycache__/
 
 # Private scrub blocklist (real proprietary names) — never commit. See .scrub-secret-patterns.example.
 .scrub-secret-patterns
+
+# Local dev journal (decisions, phase outcomes, handoffs, troubleshooting). Survives sessions on disk;
+# not part of the published repo.
+/workflow/
