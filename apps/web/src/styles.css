@@ -75,3 +75,40 @@ body { background: var(--bg); color: var(--text); }
 .muted { color: var(--muted); font-size: 12px; }
 a { color: var(--accent); }
 .foot { margin-top: auto; font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+/* --- inspect popup (non-ticket features) ---------------------------------- */
+.insp-popup .maplibregl-popup-content {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; font-size: 12px;
+}
+.insp-popup .maplibregl-popup-close-button { color: var(--muted); font-size: 16px; padding: 0 6px; }
+.insp-popup .maplibregl-popup-close-button:hover { color: var(--text); background: transparent; }
+/* Tip color matches the panel; the colored border side depends on the anchor. */
+.insp-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.insp-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.insp-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--panel-2); }
+.insp-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.insp-popup.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.insp-popup.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--panel-2); }
+.insp-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--panel-2); }
+.insp-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--panel-2); }
+.ip-title { font-weight: 650; margin-bottom: 6px; }
+.ip-row { display: flex; justify-content: space-between; gap: 12px; line-height: 1.5; }
+.ip-k { color: var(--muted); }
+.ip-v { text-align: right; word-break: break-word; }
+
+/* --- ticket detail panel -------------------------------------------------- */
+.ticket-panel {
+  position: absolute; top: 12px; right: 12px; width: 260px;
+  max-height: calc(100% - 24px); overflow-y: auto; z-index: 5;
+}
+.tp-head { display: flex; align-items: center; justify-content: space-between; }
+.tp-head h2 { margin: 0; }
+.tp-close { appearance: none; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 4px; }
+.tp-close:hover { color: var(--text); }
+.tp-id { font-size: 15px; font-weight: 650; margin: 6px 0 10px; }
+.tp-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; margin: 6px 0; }
+.tp-facs { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.tp-facs h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; }
+.tp-fac { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 7px; margin-bottom: 5px; }
+.tp-fac .meta { color: var(--muted); }

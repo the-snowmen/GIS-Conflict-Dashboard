@@ -1,5 +1,13 @@
 // Thin imperative wrapper around MapLibre + terra-draw so the React layer stays declarative.
-import maplibregl, { Map as MlMap, GeoJSONSource, StyleSpecification } from "maplibre-gl";
+import maplibregl, {
+  Map as MlMap,
+  GeoJSONSource,
+  LngLat,
+  LngLatLike,
+  MapGeoJSONFeature,
+  Popup,
+  StyleSpecification,
+} from "maplibre-gl";
 import { TerraDraw, TerraDrawPolygonMode } from "terra-draw";
 import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
 import type { Feature, FeatureCollection, Geometry, Position } from "geojson";
@@ -35,12 +43,30 @@ export type SourceId =
   | "aoi"
   | "conflict";
 
+export type InspectHandler = (layerId: string, feature: MapGeoJSONFeature, lngLat: LngLat) => void;
+
+// Clickable layers, highest priority first. queryRenderedFeatures returns hits in render
+// order (not this order), so we walk this list and take the first layer with a hit.
+const INTERACTIVE_LAYERS = [
+  "tickets-circle",
+  "conflict-line",
+  "kmz-point",
+  "kmz-line",
+  "kmz-fill",
+  "facilities-line",
+  "hex-fill",
+  "counties-fill",
+];
+
 export class MapController {
   readonly map: MlMap;
   private draw?: TerraDraw;
   private clickMode: "idle" | "buffer" = "idle";
   private onBufferClick?: (lng: number, lat: number) => void;
   private destroyed = false;
+  private inspectPopup?: Popup;
+  private onInspectClick?: (e: maplibregl.MapMouseEvent) => void;
+  private onInspectMove?: (e: maplibregl.MapMouseEvent) => void;
 
   constructor(container: HTMLElement) {
     this.map = new maplibregl.Map({
@@ -173,6 +199,61 @@ export class MapController {
     this.map.getCanvas().style.cursor = "";
   }
 
+  // --- feature inspection --------------------------------------------------
+  /** True while buffer-click or an active polygon draw should own clicks (not inspect). */
+  private get inspectBusy(): boolean {
+    return this.clickMode !== "idle" || (!!this.draw && this.draw.getMode() !== "static");
+  }
+
+  /** Pick the topmost interesting feature under a point, by INTERACTIVE_LAYERS priority. */
+  private pickFeature(point: maplibregl.PointLike): { layerId: string; feature: MapGeoJSONFeature } | null {
+    const hits = this.map.queryRenderedFeatures(point, { layers: INTERACTIVE_LAYERS });
+    for (const layerId of INTERACTIVE_LAYERS) {
+      const feature = hits.find((f) => f.layer.id === layerId);
+      if (feature) return { layerId, feature };
+    }
+    return null;
+  }
+
+  /** Click an interactive feature -> onInspect; hover toggles a pointer cursor. */
+  enableInspect(onInspect: InspectHandler) {
+    this.onInspectClick = (e) => {
+      if (this.inspectBusy) return;
+      const hit = this.pickFeature(e.point);
+      if (hit) onInspect(hit.layerId, hit.feature, e.lngLat);
+    };
+    this.onInspectMove = (e) => {
+      if (this.inspectBusy) return;
+      this.map.getCanvas().style.cursor = this.pickFeature(e.point) ? "pointer" : "";
+    };
+    this.map.on("click", this.onInspectClick);
+    this.map.on("mousemove", this.onInspectMove);
+  }
+
+  disableInspect() {
+    if (this.onInspectClick) this.map.off("click", this.onInspectClick);
+    if (this.onInspectMove) this.map.off("mousemove", this.onInspectMove);
+    this.onInspectClick = undefined;
+    this.onInspectMove = undefined;
+    if (this.clickMode === "idle") this.map.getCanvas().style.cursor = "";
+  }
+
+  /** Show the single reusable popup at a location with a (safely built) DOM node. */
+  showInspectPopup(lngLat: LngLatLike, content: Node) {
+    if (this.destroyed) return;
+    this.inspectPopup ??= new maplibregl.Popup({
+      className: "insp-popup",
+      closeButton: true,
+      closeOnClick: false,
+      maxWidth: "260px",
+    });
+    this.inspectPopup.setLngLat(lngLat).setDOMContent(content).addTo(this.map);
+  }
+
+  hideInspectPopup() {
+    this.inspectPopup?.remove();
+  }
+
   startPolygonDraw(onFinish: (geom: Geometry) => void) {
     if (!this.draw) {
       this.draw = new TerraDraw({
@@ -199,6 +280,8 @@ export class MapController {
 
   destroy() {
     this.destroyed = true;
+    this.disableInspect();
+    this.inspectPopup?.remove();
     try {
       this.draw?.stop();
     } catch {

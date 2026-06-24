@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Geometry, Position } from "geojson";
-import { MapController } from "./map";
+import type { LngLat, MapGeoJSONFeature } from "maplibre-gl";
+import { MapController, type InspectHandler } from "./map";
 import {
   bufferPoint,
   conflictForAoi,
@@ -13,6 +14,7 @@ import {
   recentTickets,
   stats as loadStats,
   ticketsLayer,
+  type ConflictResult,
   type Stats,
   type TicketRow,
 } from "./services/demo";
@@ -25,6 +27,20 @@ interface ConflictInfo {
   jurisdiction: string | null;
   via: string;
 }
+
+interface TicketDetail {
+  ticket_id: string;
+  source: string;
+  status: string;
+  county: string | null;
+  storedCount: number;
+  liveCount: number;
+  radius: number;
+  facilities: { owner?: string; voltage_class?: string }[];
+}
+
+// Minimal ticket shape shared by map-click (feature.properties) and the sidebar list (TicketRow).
+type TicketLike = { ticket_id: string; source: string; status: string; conflict_count: number };
 
 export default function App() {
   const mapEl = useRef<HTMLDivElement>(null);
@@ -40,8 +56,11 @@ export default function App() {
   const [hexRes] = useState(7);
   const [kmzName, setKmzName] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ConflictInfo | null>(null);
+  const [ticketInfo, setTicketInfo] = useState<TicketDetail | null>(null);
   const radiusRef = useRef(radius);
   radiusRef.current = radius;
+  // Stable indirection so enableInspect (wired once on mount) always calls the latest handler.
+  const onInspectRef = useRef<InspectHandler>(() => {});
 
   // --- boot: map + data ----------------------------------------------------
   useEffect(() => {
@@ -51,6 +70,7 @@ export default function App() {
     c.whenReady(async () => {
       try {
         c.initLayers();
+        c.enableInspect((layerId, feature, lngLat) => onInspectRef.current(layerId, feature, lngLat));
         const cfg = await config();
         setLabel(cfg.label);
         const [facilities, counties, ticketsFc] = await Promise.all([
@@ -77,22 +97,80 @@ export default function App() {
   }, []);
 
   // --- conflict run --------------------------------------------------------
-  const runConflict = useCallback(async (geom: Geometry, at: Position, via: string) => {
-    const c = ctrl.current;
-    if (!c) return;
-    c.setData("aoi", { type: "FeatureCollection", features: [{ type: "Feature", geometry: geom, properties: {} }] });
-    const res = await conflictForAoi(geom);
-    c.setData("conflict", res.facilities);
-    const jur = await jurisdictionFor(at[0], at[1]);
-    setConflict({ count: res.count, jurisdiction: jur, via });
-    c.fitTo({ type: "FeatureCollection", features: [{ type: "Feature", geometry: geom, properties: {} }] }, 120);
-  }, []);
+  const runConflict = useCallback(
+    async (geom: Geometry, at: Position, via: string): Promise<ConflictResult> => {
+      const c = ctrl.current;
+      const empty: ConflictResult = { count: 0, facilities: { type: "FeatureCollection", features: [] } };
+      if (!c) return empty;
+      c.setData("aoi", { type: "FeatureCollection", features: [{ type: "Feature", geometry: geom, properties: {} }] });
+      const res = await conflictForAoi(geom);
+      c.setData("conflict", res.facilities);
+      const jur = await jurisdictionFor(at[0], at[1]);
+      setConflict({ count: res.count, jurisdiction: jur, via });
+      c.fitTo({ type: "FeatureCollection", features: [{ type: "Feature", geometry: geom, properties: {} }] }, 120);
+      return res;
+    },
+    [],
+  );
+
+  // --- feature inspection --------------------------------------------------
+  // Buffer a ticket, recompute its conflicts live, and open the detail panel.
+  // Shared by map ticket-clicks and the "Recent tickets" sidebar list.
+  const handleTicketSelect = useCallback(
+    async (t: TicketLike, lng: number, lat: number) => {
+      const c = ctrl.current;
+      if (!c) return;
+      c.hideInspectPopup();
+      const geom = bufferPoint(lng, lat, radiusRef.current);
+      const res = await runConflict(geom, [lng, lat], `${radiusRef.current} m live (ticket ${t.ticket_id})`);
+      const county = await jurisdictionFor(lng, lat);
+      setTicketInfo({
+        ticket_id: t.ticket_id,
+        source: t.source,
+        status: t.status,
+        county,
+        storedCount: Number(t.conflict_count),
+        liveCount: res.count,
+        radius: radiusRef.current,
+        facilities: res.facilities.features.map((f) => (f.properties ?? {}) as { owner?: string; voltage_class?: string }),
+      });
+    },
+    [runConflict],
+  );
+
+  const onInspect = useCallback<InspectHandler>(
+    (layerId: string, feature: MapGeoJSONFeature, lngLat: LngLat) => {
+      const c = ctrl.current;
+      if (!c) return;
+      const props = (feature.properties ?? {}) as Record<string, unknown>;
+      if (layerId === "tickets-circle") {
+        c.hideInspectPopup();
+        void handleTicketSelect(
+          {
+            ticket_id: String(props.ticket_id ?? ""),
+            source: String(props.source ?? ""),
+            status: String(props.status ?? ""),
+            conflict_count: Number(props.conflict_count ?? 0),
+          },
+          lngLat.lng,
+          lngLat.lat,
+        );
+      } else {
+        setTicketInfo(null);
+        c.showInspectPopup(lngLat, buildPopupNode(layerId, props));
+      }
+    },
+    [handleTicketSelect],
+  );
+  onInspectRef.current = onInspect;
 
   // --- modes ---------------------------------------------------------------
   const setBufferMode = useCallback(() => {
     const c = ctrl.current;
     if (!c) return;
     c.stopPolygonDraw();
+    c.hideInspectPopup();
+    setTicketInfo(null);
     setMode("buffer");
     c.enableBufferClick((lng, lat) => {
       const geom = bufferPoint(lng, lat, radiusRef.current);
@@ -104,6 +182,8 @@ export default function App() {
     const c = ctrl.current;
     if (!c) return;
     c.disableBufferClick();
+    c.hideInspectPopup();
+    setTicketInfo(null);
     setMode("draw");
     c.startPolygonDraw((geom) => {
       setMode("idle");
@@ -118,7 +198,9 @@ export default function App() {
     c.stopPolygonDraw();
     c.setData("aoi", { type: "FeatureCollection", features: [] });
     c.setData("conflict", { type: "FeatureCollection", features: [] });
+    c.hideInspectPopup();
     setConflict(null);
+    setTicketInfo(null);
     setMode("idle");
   }, []);
 
@@ -219,7 +301,10 @@ export default function App() {
                 <div
                   key={t.ticket_id}
                   className="ticket"
-                  onClick={() => ctrl.current?.map.flyTo({ center: [t.lon, t.lat], zoom: 14 })}
+                  onClick={() => {
+                    ctrl.current?.map.flyTo({ center: [t.lon, t.lat], zoom: 14 });
+                    void handleTicketSelect(t, t.lon, t.lat);
+                  }}
                 >
                   <span>{t.ticket_id}<br /><span className="meta">{t.source}</span></span>
                   <span className={`pill ${t.conflict_count > 0 ? "conflict" : "clear"}`}>
@@ -248,6 +333,41 @@ export default function App() {
               <span>✓ <strong>no</strong> conflicts</span>
             )}
             <span className="muted">· {conflict.jurisdiction ?? "outside tracked counties"} · {conflict.via}</span>
+          </div>
+        )}
+        {ticketInfo && (
+          <div className="ticket-panel card">
+            <div className="tp-head">
+              <h2>Ticket detail</h2>
+              <button className="tp-close" onClick={clearAoi} aria-label="Close ticket detail">✕</button>
+            </div>
+            <div className="tp-id">{ticketInfo.ticket_id}</div>
+            <div className="tp-row"><span className="muted">Source</span><span>{ticketInfo.source}</span></div>
+            <div className="tp-row"><span className="muted">Status</span><span>{ticketInfo.status}</span></div>
+            <div className="tp-row"><span className="muted">County</span><span>{ticketInfo.county ?? "—"}</span></div>
+            <div className="tp-row">
+              <span className="muted">Recorded (intake)</span>
+              <span className={`pill ${ticketInfo.storedCount > 0 ? "conflict" : "clear"}`}>
+                {ticketInfo.storedCount > 0 ? `${ticketInfo.storedCount} conflict` : "clear"}
+              </span>
+            </div>
+            <div className="tp-row">
+              <span className="muted">Live · {ticketInfo.radius} m</span>
+              <span className={`pill ${ticketInfo.liveCount > 0 ? "conflict" : "clear"}`}>
+                {ticketInfo.liveCount > 0 ? `${ticketInfo.liveCount} conflict` : "clear"}
+              </span>
+            </div>
+            {ticketInfo.facilities.length > 0 && (
+              <div className="tp-facs">
+                <h3>Conflicting facilities</h3>
+                {ticketInfo.facilities.map((f, i) => (
+                  <div key={i} className="tp-fac">
+                    <span>{f.owner ?? "—"}</span>
+                    <span className="meta">{f.voltage_class ?? ""}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {phase !== "ready" && (
@@ -279,6 +399,66 @@ function LegendItem({ c, t }: { c: string; t: string }) {
       {t}
     </div>
   );
+}
+
+// Field schema per clickable layer -> ordered [label, value] rows for the popup.
+function rowsForLayer(layerId: string, props: Record<string, unknown>): { title: string; rows: [string, string][] } {
+  const s = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+  const keep = (rows: [string, string][]) => rows.filter(([, v]) => v !== "");
+  switch (layerId) {
+    case "facilities-line":
+    case "conflict-line":
+      return {
+        title: "Transmission line",
+        rows: keep([
+          ["Owner", s(props.owner)],
+          ["Voltage", s(props.voltage_class)],
+          ["Status", s(props.status)],
+          ["ID", s(props.id)],
+        ]),
+      };
+    case "counties-fill":
+      return {
+        title: "County",
+        rows: keep([
+          ["County", s(props.name)],
+          ["State", s(props.state)],
+          ["GEOID", s(props.geoid)],
+        ]),
+      };
+    case "hex-fill":
+      return { title: "Ticket density", rows: [["Tickets", s(props.count)]] };
+    default: // kmz-line / kmz-fill / kmz-point — arbitrary user-supplied properties
+      return {
+        title: "Imported feature",
+        rows: keep(Object.entries(props).map(([k, v]) => [k, s(v)] as [string, string])).slice(0, 12),
+      };
+  }
+}
+
+// Build a popup body as a DOM node. Values are set via textContent (never innerHTML), so
+// arbitrary KMZ property values cannot inject markup/script.
+function buildPopupNode(layerId: string, props: Record<string, unknown>): HTMLElement {
+  const { title, rows } = rowsForLayer(layerId, props);
+  const root = document.createElement("div");
+  root.className = "ip";
+  const head = document.createElement("div");
+  head.className = "ip-title";
+  head.textContent = title;
+  root.appendChild(head);
+  for (const [k, v] of rows) {
+    const row = document.createElement("div");
+    row.className = "ip-row";
+    const key = document.createElement("span");
+    key.className = "ip-k";
+    key.textContent = k;
+    const val = document.createElement("span");
+    val.className = "ip-v";
+    val.textContent = v;
+    row.append(key, val);
+    root.appendChild(row);
+  }
+  return root;
 }
 
 // Average of a polygon's exterior ring — good enough to pick a jurisdiction.
