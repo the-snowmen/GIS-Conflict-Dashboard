@@ -53,15 +53,41 @@ body { background: var(--bg); color: var(--text); }
 
 .legend { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 .legend .item { display: flex; align-items: center; gap: 8px; }
-.swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.25); }
+/* Glyph matches the feature geometry: filled square (polygon), line stroke, dot (point). */
+.glyph { width: 16px; height: 16px; flex: 0 0 16px; display: inline-block; position: relative; }
+.glyph-polygon { background: color-mix(in srgb, var(--c) 28%, transparent); border: 1.5px solid var(--c); border-radius: 3px; }
+.glyph-line::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 2.5px; transform: translateY(-50%) rotate(-18deg); background: var(--c); border-radius: 2px; }
+.glyph-point::before { content: ""; position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; transform: translate(-50%, -50%); background: var(--c); border-radius: 50%; border: 1px solid rgba(15,20,32,0.6); }
 
-.ticket-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
-.ticket { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+/* collapsible card header */
+.panel-head { appearance: none; background: transparent; border: none; color: inherit; cursor: pointer; width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0; }
+.panel-head h2 { margin: 0; }
+.panel-head .chev { color: var(--muted); font-size: 12px; }
+
+.ticket-controls { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.ticket-controls .ti, .ticket-controls select { width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font-size: 12px; }
+.ticket-controls .row > * { min-width: 0; }
+.ticket-controls .chk { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.ticket-controls .chk input { width: auto; }
+
+.ticket-list { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+.ticket { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; }
 .ticket:hover { border-color: var(--accent); }
+.ticket-main { cursor: pointer; flex: 1; min-width: 0; }
 .ticket .meta { color: var(--muted); }
-.pill { font-size: 10px; padding: 2px 6px; border-radius: 999px; }
+.ticket .tag { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; margin-left: 6px; }
+.ticket-side { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.mini { appearance: none; background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; cursor: pointer; font-size: 12px; line-height: 1; padding: 3px 5px; }
+.mini:hover { border-color: var(--accent); color: var(--text); }
+.pill { font-size: 10px; padding: 2px 6px; border-radius: 999px; white-space: nowrap; }
 .pill.conflict { background: rgba(255,107,107,0.18); color: var(--danger); }
 .pill.clear { background: rgba(62,207,142,0.16); color: var(--ok); }
+
+/* create/edit ticket form */
+.edit-card { border-color: var(--accent); }
+.fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.fld input, .fld select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font-size: 13px; }
+.fld-coords { margin-top: 8px; }
 
 .banner { position: absolute; top: 10px; left: 10px; background: rgba(15,20,32,0.85); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--muted); }
 .result { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); background: rgba(15,20,32,0.92); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 13px; display: flex; align-items: center; gap: 10px; }
@@ -104,6 +130,7 @@ a { color: var(--accent); }
 }
 .tp-head { display: flex; align-items: center; justify-content: space-between; }
 .tp-head h2 { margin: 0; }
+.tp-actions { display: flex; align-items: center; gap: 6px; }
 .tp-close { appearance: none; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 4px; }
 .tp-close:hover { color: var(--text); }
 .tp-id { font-size: 15px; font-weight: 650; margin: 6px 0 10px; }
@@ -112,3 +139,16 @@ a { color: var(--accent); }
 .tp-facs h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; }
 .tp-fac { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 7px; margin-bottom: 5px; }
 .tp-fac .meta { color: var(--muted); }
+
+/* --- basemap attribution: dark-themed, collapsed to a compact ⓘ ----------- */
+/* maplibre ships the compact control expanded (maplibregl-compact-show); force it
+   collapsed to the ⓘ button by default and reveal the (license-required) text on
+   hover/focus. */
+.maplibregl-ctrl-attrib.maplibregl-compact {
+  background: rgba(15,20,32,0.85); border: 1px solid var(--line); border-radius: 8px;
+  min-height: 24px; min-width: 24px; color: var(--muted);
+}
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner { display: none !important; }
+.maplibregl-ctrl-attrib.maplibregl-compact:hover .maplibregl-ctrl-attrib-inner,
+.maplibregl-ctrl-attrib.maplibregl-compact:focus-within .maplibregl-ctrl-attrib-inner { display: block !important; }
+.maplibregl-ctrl-attrib-inner a { color: var(--accent); }

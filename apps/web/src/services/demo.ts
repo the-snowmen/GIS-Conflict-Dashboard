@@ -9,12 +9,25 @@ import type {
 } from "geojson";
 import { q } from "./duckdb";
 import { getGeokit } from "./geokit";
+import {
+  addTicket,
+  deleteTicket,
+  editTicket,
+  isUserTicket,
+  mergeRows,
+  nextTicketId,
+  type MergedTicket,
+  type OverlayTicket,
+} from "./overlay";
+
+export type { MergedTicket } from "./overlay";
 
 export interface DemoConfig {
   metro: string;
   label: string;
   selfOwners: string[];
   excludedFacilityStatuses: string[];
+  ticketStatuses: string[];
 }
 
 let cfgPromise: Promise<DemoConfig> | null = null;
@@ -66,14 +79,62 @@ export async function countiesLayer(): Promise<FeatureCollection> {
   );
 }
 
+// --- tickets: immutable parquet baseline + a localStorage overlay ----------
+type BaselineTicketRow = {
+  ticket_id: string;
+  source: string;
+  status: string;
+  conflict_count: number;
+  county_geoid: string | null;
+  lon: number;
+  lat: number;
+  created_at: string;
+};
+
+// The baseline never changes, so read it once and re-merge the overlay per call.
+let baselinePromise: Promise<MergedTicket[]> | null = null;
+function baselineTickets(): Promise<MergedTicket[]> {
+  return (baselinePromise ??= q<BaselineTicketRow>(
+    `SELECT ticket_id, source, status, conflict_count, county_geoid, lon, lat,
+            CAST(created_at AS VARCHAR) AS created_at
+     FROM read_parquet('ticket.parquet')`,
+  ).then((rows) =>
+    rows.map((r) => ({
+      ticket_id: r.ticket_id,
+      source: r.source,
+      status: r.status,
+      conflict_count: Number(r.conflict_count), // BIGINT -> Number (MapLibre drops BigInt props)
+      county_geoid: r.county_geoid,
+      lon: Number(r.lon),
+      lat: Number(r.lat),
+      created_at: r.created_at,
+      origin: "baseline" as const,
+    })),
+  ));
+}
+
+/** Baseline tickets with user adds/edits/deletes applied. */
+export async function allTicketsMerged(): Promise<MergedTicket[]> {
+  return mergeRows(await baselineTickets());
+}
+
 export async function ticketsLayer(): Promise<FeatureCollection> {
-  return toFC(
-    await q<GeomRow>(
-      `SELECT ticket_id, source, status, conflict_count, county_geoid,
-              ST_AsGeoJSON(ST_GeomFromWKB(geom)) AS gj
-       FROM read_parquet('ticket.parquet')`,
-    ),
-  );
+  const rows = await allTicketsMerged();
+  return {
+    type: "FeatureCollection",
+    features: rows.map((r) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [r.lon, r.lat] },
+      properties: {
+        ticket_id: r.ticket_id,
+        source: r.source,
+        status: r.status,
+        conflict_count: Number(r.conflict_count),
+        county_geoid: r.county_geoid,
+        origin: r.origin,
+      },
+    })),
+  };
 }
 
 // --- stats / list ----------------------------------------------------------
@@ -84,43 +145,34 @@ export interface Stats {
   counties: { name: string; tickets: number }[];
 }
 
+// geoid -> county name (immutable; read once).
+let countyNamePromise: Promise<Map<string, string>> | null = null;
+function countyNames(): Promise<Map<string, string>> {
+  return (countyNamePromise ??= q<{ geoid: string; name: string }>(
+    `SELECT geoid, name FROM read_parquet('county.parquet')`,
+  ).then((rows) => new Map(rows.map((r) => [String(r.geoid), r.name]))));
+}
+
 export async function stats(): Promise<Stats> {
-  const [agg] = await q<{ facilities: number; tickets: number; conflicts: number }>(
-    `SELECT
-        (SELECT count(*) FROM read_parquet('facility.parquet')) AS facilities,
-        (SELECT count(*) FROM read_parquet('ticket.parquet')) AS tickets,
-        (SELECT count(*) FROM read_parquet('ticket.parquet') WHERE conflict_count > 0) AS conflicts`,
+  const [agg] = await q<{ facilities: number }>(
+    `SELECT count(*) AS facilities FROM read_parquet('facility.parquet')`,
   );
-  const counties = await q<{ name: string; tickets: number }>(
-    `SELECT c.name AS name, count(*) AS tickets
-     FROM read_parquet('ticket.parquet') t
-     JOIN read_parquet('county.parquet') c ON t.county_geoid = c.geoid
-     GROUP BY c.name ORDER BY tickets DESC`,
-  );
+  const merged = await allTicketsMerged();
+  const names = await countyNames();
+  const byCounty = new Map<string, number>();
+  for (const t of merged) {
+    if (!t.county_geoid) continue;
+    byCounty.set(t.county_geoid, (byCounty.get(t.county_geoid) ?? 0) + 1);
+  }
+  const counties = [...byCounty.entries()]
+    .map(([geoid, tickets]) => ({ name: names.get(geoid) ?? geoid, tickets }))
+    .sort((a, b) => b.tickets - a.tickets);
   return {
     facilities: Number(agg.facilities),
-    tickets: Number(agg.tickets),
-    conflicts: Number(agg.conflicts),
-    counties: counties.map((r) => ({ name: r.name, tickets: Number(r.tickets) })),
+    tickets: merged.length,
+    conflicts: merged.filter((t) => t.conflict_count > 0).length,
+    counties,
   };
-}
-
-export interface TicketRow {
-  ticket_id: string;
-  source: string;
-  status: string;
-  conflict_count: number;
-  lon: number;
-  lat: number;
-}
-
-export async function recentTickets(limit = 40): Promise<TicketRow[]> {
-  const rows = await q<TicketRow>(
-    `SELECT ticket_id, source, status, conflict_count, lon, lat
-     FROM read_parquet('ticket.parquet')
-     ORDER BY created_at DESC LIMIT ${limit}`,
-  );
-  return rows.map((r) => ({ ...r, conflict_count: Number(r.conflict_count) }));
 }
 
 // --- conflict analysis (DuckDB) + jurisdiction -----------------------------
@@ -155,6 +207,81 @@ export async function jurisdictionFor(lng: number, lat: number): Promise<string 
   return rows[0]?.name ?? null;
 }
 
+/** County (geoid + name) containing a point, or null if outside tracked counties. */
+async function countyAt(lng: number, lat: number): Promise<{ geoid: string; name: string } | null> {
+  const rows = await q<{ geoid: string; name: string }>(
+    `SELECT c.geoid AS geoid, c.name AS name FROM read_parquet('county.parquet') c
+     WHERE ST_Within(ST_Point(${lng}, ${lat}), ST_GeomFromWKB(c.geom)) LIMIT 1`,
+  );
+  return rows[0] ?? null;
+}
+
+// --- ticket CRUD (overlay-backed) ------------------------------------------
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+// Live conflict count for a point at a given radius, via geokit buffer + ST_Intersects.
+async function conflictCountAt(lon: number, lat: number, radiusM: number): Promise<number> {
+  const { count } = await conflictForAoi(bufferPoint(lon, lat, radiusM));
+  return count;
+}
+
+export interface CreateTicketInput {
+  source: string;
+  status: string;
+  lon: number;
+  lat: number;
+  radiusM: number;
+}
+
+export async function createTicket(input: CreateTicketInput): Promise<MergedTicket> {
+  const conflict_count = await conflictCountAt(input.lon, input.lat, input.radiusM);
+  const county = await countyAt(input.lon, input.lat);
+  const t: OverlayTicket = {
+    ticket_id: nextTicketId(),
+    source: input.source,
+    status: input.status,
+    conflict_count,
+    radius_m: input.radiusM,
+    lon: input.lon,
+    lat: input.lat,
+    county_geoid: county?.geoid ?? null,
+    created_at: todayIso(),
+    origin: "user",
+  };
+  addTicket(t);
+  return { ...t };
+}
+
+export interface UpdateTicketPatch {
+  source?: string;
+  status?: string;
+  lon?: number;
+  lat?: number;
+}
+
+/** Update fields and/or move a ticket. Conflict count is recomputed only when the
+ *  point moves (the facility set is static, so field edits can't change it). */
+export async function updateTicket(
+  ticket_id: string,
+  patch: UpdateTicketPatch,
+  radiusM: number,
+): Promise<void> {
+  const moved = patch.lon !== undefined && patch.lat !== undefined;
+  const full: Partial<OverlayTicket> = { source: patch.source, status: patch.status };
+  if (moved) {
+    full.lon = patch.lon;
+    full.lat = patch.lat;
+    full.conflict_count = await conflictCountAt(patch.lon!, patch.lat!, radiusM);
+    full.radius_m = radiusM;
+    full.county_geoid = (await countyAt(patch.lon!, patch.lat!))?.geoid ?? null;
+  }
+  editTicket(ticket_id, full, !isUserTicket(ticket_id));
+}
+
+export async function removeTicket(ticket_id: string): Promise<void> {
+  deleteTicket(ticket_id, !isUserTicket(ticket_id));
+}
+
 // --- geokit-powered pieces -------------------------------------------------
 /** Geodesic buffer (meters) of a point -> AOI polygon, via the Rust/WASM engine. */
 export function bufferPoint(lng: number, lat: number, meters: number): Geometry {
@@ -165,10 +292,8 @@ export function bufferPoint(lng: number, lat: number, meters: number): Geometry 
 
 /** Per-hex ticket density (FeatureCollection) at an H3 resolution, via geokit H3. */
 export async function hexDensity(res: number): Promise<FeatureCollection> {
-  const pts = await q<{ lon: number; lat: number }>(
-    `SELECT lon, lat FROM read_parquet('ticket.parquet')`,
-  );
-  const arr = pts.map((p) => [Number(p.lon), Number(p.lat)] as [number, number]);
+  const rows = await allTicketsMerged();
+  const arr = rows.map((r) => [r.lon, r.lat] as [number, number]);
   const gk = getGeokit();
   return JSON.parse(gk.h3_hex_density_geojson(arr, res)) as FeatureCollection;
 }

@@ -55,14 +55,15 @@ const INTERACTIVE_LAYERS = [
   "kmz-fill",
   "facilities-line",
   "hex-fill",
-  "counties-fill",
 ];
 
 export class MapController {
   readonly map: MlMap;
   private draw?: TerraDraw;
-  private clickMode: "idle" | "buffer" = "idle";
+  private clickMode: "idle" | "buffer" | "addTicket" = "idle";
   private onBufferClick?: (lng: number, lat: number) => void;
+  private onAddPointClick?: (lng: number, lat: number) => void;
+  private dragMarker?: maplibregl.Marker;
   private destroyed = false;
   private inspectPopup?: Popup;
   private onInspectClick?: (e: maplibregl.MapMouseEvent) => void;
@@ -74,15 +75,20 @@ export class MapController {
       style: STYLE,
       center: [-97.74, 30.27],
       zoom: 9,
-      attributionControl: { compact: true },
+      // Add the attribution control ourselves (below) so compact mode is guaranteed.
+      attributionControl: false,
     });
     if (import.meta.env.DEV) {
       (window as unknown as { __mapctrl?: MapController }).__mapctrl = this;
     }
+    // Required OSM/CARTO attribution, collapsed to a compact ⓘ button by default.
+    this.map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
     this.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     this.map.on("click", (e) => {
       if (this.clickMode === "buffer" && this.onBufferClick) {
         this.onBufferClick(e.lngLat.lng, e.lngLat.lat);
+      } else if (this.clickMode === "addTicket" && this.onAddPointClick) {
+        this.onAddPointClick(e.lngLat.lng, e.lngLat.lat);
       }
     });
   }
@@ -199,6 +205,38 @@ export class MapController {
     this.map.getCanvas().style.cursor = "";
   }
 
+  // --- ticket placement ----------------------------------------------------
+  /** Next map click reports its location (for placing a new ticket point). */
+  enableAddPoint(cb: (lng: number, lat: number) => void) {
+    this.clickMode = "addTicket";
+    this.onAddPointClick = cb;
+    this.map.getCanvas().style.cursor = "crosshair";
+  }
+
+  disableAddPoint() {
+    if (this.clickMode === "addTicket") this.clickMode = "idle";
+    this.onAddPointClick = undefined;
+    this.map.getCanvas().style.cursor = "";
+  }
+
+  /** Drop a single draggable marker; onDragEnd fires with its final position. */
+  spawnDragMarker(lng: number, lat: number, onDragEnd: (lng: number, lat: number) => void) {
+    this.removeDragMarker();
+    const m = new maplibregl.Marker({ draggable: true, color: "#ffd166" })
+      .setLngLat([lng, lat])
+      .addTo(this.map);
+    m.on("dragend", () => {
+      const p = m.getLngLat();
+      onDragEnd(p.lng, p.lat);
+    });
+    this.dragMarker = m;
+  }
+
+  removeDragMarker() {
+    this.dragMarker?.remove();
+    this.dragMarker = undefined;
+  }
+
   // --- feature inspection --------------------------------------------------
   /** True while buffer-click or an active polygon draw should own clicks (not inspect). */
   private get inspectBusy(): boolean {
@@ -281,6 +319,7 @@ export class MapController {
   destroy() {
     this.destroyed = true;
     this.disableInspect();
+    this.removeDragMarker();
     this.inspectPopup?.remove();
     try {
       this.draw?.stop();
