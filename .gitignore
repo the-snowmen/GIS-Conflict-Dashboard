@@ -23,9 +23,11 @@ __pycache__/
 .idea/
 .vscode/
 
-# Private scrub blocklist (real proprietary names) — never commit. See .scrub-secret-patterns.example.
+# Local-only tooling and notes — kept on each developer's machine, not part of the published repo.
+CLAUDE.md
+/scripts/scrub.sh
 .scrub-secret-patterns
-
-# Local dev journal (decisions, phase outcomes, handoffs, troubleshooting). Survives sessions on disk;
-# not part of the published repo.
+.scrub-secret-patterns.example
+/.githooks/
+/.github/workflows/ci.yml
 /workflow/
