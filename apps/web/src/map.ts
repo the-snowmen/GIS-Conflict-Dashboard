@@ -41,7 +41,8 @@ export type SourceId =
   | "hex"
   | "kmz"
   | "aoi"
-  | "conflict";
+  | "conflict"
+  | "conflict-highlight";
 
 export type InspectHandler = (layerId: string, feature: MapGeoJSONFeature, lngLat: LngLat) => void;
 
@@ -68,6 +69,7 @@ export class MapController {
   private inspectPopup?: Popup;
   private onInspectClick?: (e: maplibregl.MapMouseEvent) => void;
   private onInspectMove?: (e: maplibregl.MapMouseEvent) => void;
+  private highlightRaf?: number;
 
   constructor(container: HTMLElement) {
     this.map = new maplibregl.Map({
@@ -83,7 +85,7 @@ export class MapController {
     }
     // Required OSM/CARTO attribution, collapsed to a compact ⓘ button by default.
     this.map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
-    this.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    this.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     this.map.on("click", (e) => {
       if (this.clickMode === "buffer" && this.onBufferClick) {
         this.onBufferClick(e.lngLat.lng, e.lngLat.lat);
@@ -104,7 +106,7 @@ export class MapController {
   /** Register empty sources + styled layers; data is pushed later via setData(). */
   initLayers() {
     const src = (id: SourceId) => this.map.addSource(id, { type: "geojson", data: EMPTY });
-    (["counties", "facilities", "tickets", "hex", "kmz", "aoi", "conflict"] as SourceId[]).forEach(src);
+    (["counties", "facilities", "tickets", "hex", "kmz", "aoi", "conflict", "conflict-highlight"] as SourceId[]).forEach(src);
 
     this.map.addLayer({
       id: "counties-fill", type: "fill", source: "counties",
@@ -174,11 +176,52 @@ export class MapController {
       id: "conflict-line", type: "line", source: "conflict",
       paint: { "line-color": "#ff3b3b", "line-width": 3.5, "line-opacity": 0.95 },
     });
+
+    // Single-feature decoration drawn on top of conflict-line to flag the
+    // hovered/selected facility. Not interactive (conflict-line stays clickable).
+    this.map.addLayer({
+      id: "conflict-highlight", type: "line", source: "conflict-highlight",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#fff2a8", "line-width": 6, "line-opacity": 1, "line-blur": 0.4 },
+    });
   }
 
   setData(id: SourceId, data: FeatureCollection) {
     if (this.destroyed) return;
     (this.map.getSource(id) as GeoJSONSource | undefined)?.setData(data);
+  }
+
+  /**
+   * Flag a single facility geometry on the conflict-highlight overlay.
+   * pulse=true animates width/opacity (for hover); pulse=false is a steady
+   * bright stroke (for a clicked/selected facility). Pass null to clear.
+   */
+  highlightConflictFacility(geom: Geometry | null, pulse = true) {
+    if (this.destroyed) return;
+    if (this.highlightRaf !== undefined) {
+      cancelAnimationFrame(this.highlightRaf);
+      this.highlightRaf = undefined;
+    }
+    const src = this.map.getSource("conflict-highlight") as GeoJSONSource | undefined;
+    if (!geom) {
+      src?.setData(EMPTY);
+      return;
+    }
+    src?.setData({ type: "FeatureCollection", features: [{ type: "Feature", geometry: geom, properties: {} }] });
+    if (!pulse) {
+      this.map.setPaintProperty("conflict-highlight", "line-width", 6);
+      this.map.setPaintProperty("conflict-highlight", "line-opacity", 1);
+      return;
+    }
+    const start = performance.now();
+    const tick = (now: number) => {
+      if (this.destroyed || !this.map.getLayer("conflict-highlight")) return;
+      const phase = (Math.sin(((now - start) / 600) * Math.PI * 2) + 1) / 2; // 0..1, ~600ms period
+      this.map.setPaintProperty("conflict-highlight", "line-width", 4 + phase * 6);
+      this.map.setPaintProperty("conflict-highlight", "line-opacity", 0.55 + phase * 0.45);
+      this.highlightRaf = requestAnimationFrame(tick);
+    };
+    this.highlightRaf = requestAnimationFrame(tick);
   }
 
   setLayerVisible(layerId: string, visible: boolean) {
@@ -318,6 +361,7 @@ export class MapController {
 
   destroy() {
     this.destroyed = true;
+    if (this.highlightRaf !== undefined) cancelAnimationFrame(this.highlightRaf);
     this.disableInspect();
     this.removeDragMarker();
     this.inspectPopup?.remove();

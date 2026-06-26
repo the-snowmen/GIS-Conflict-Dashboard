@@ -189,7 +189,7 @@ export async function conflictForAoi(aoi: Geometry): Promise<ConflictResult> {
   const aoiJson = sqlString(JSON.stringify(aoi));
   const rows = await q<GeomRow>(
     `WITH aoi AS (SELECT ST_GeomFromGeoJSON(${aoiJson}) AS g)
-     SELECT f.id, f.owner, f.voltage_class,
+     SELECT f.id, f.owner, f.voltage_class, f.status,
             ST_AsGeoJSON(ST_GeomFromWKB(f.geom)) AS gj
      FROM read_parquet('facility.parquet') f, aoi
      WHERE f.owner IN (${owners})
@@ -225,9 +225,12 @@ async function conflictCountAt(lon: number, lat: number, radiusM: number): Promi
   return count;
 }
 
+// A ticket's status is its conflict state — derived from the count, not user-chosen
+// (matches how baseline tickets are scored in build_demo_db.py).
+const deriveStatus = (n: number): string => (n > 0 ? "potential_conflict" : "no_conflict");
+
 export interface CreateTicketInput {
   source: string;
-  status: string;
   lon: number;
   lat: number;
   radiusM: number;
@@ -239,7 +242,7 @@ export async function createTicket(input: CreateTicketInput): Promise<MergedTick
   const t: OverlayTicket = {
     ticket_id: nextTicketId(),
     source: input.source,
-    status: input.status,
+    status: deriveStatus(conflict_count),
     conflict_count,
     radius_m: input.radiusM,
     lon: input.lon,
@@ -254,24 +257,25 @@ export async function createTicket(input: CreateTicketInput): Promise<MergedTick
 
 export interface UpdateTicketPatch {
   source?: string;
-  status?: string;
   lon?: number;
   lat?: number;
 }
 
-/** Update fields and/or move a ticket. Conflict count is recomputed only when the
- *  point moves (the facility set is static, so field edits can't change it). */
+/** Update fields and/or move a ticket. Conflict count (and the derived status) is
+ *  recomputed only when the point moves (the facility set is static, so field edits
+ *  can't change it). */
 export async function updateTicket(
   ticket_id: string,
   patch: UpdateTicketPatch,
   radiusM: number,
 ): Promise<void> {
   const moved = patch.lon !== undefined && patch.lat !== undefined;
-  const full: Partial<OverlayTicket> = { source: patch.source, status: patch.status };
+  const full: Partial<OverlayTicket> = { source: patch.source };
   if (moved) {
     full.lon = patch.lon;
     full.lat = patch.lat;
     full.conflict_count = await conflictCountAt(patch.lon!, patch.lat!, radiusM);
+    full.status = deriveStatus(full.conflict_count);
     full.radius_m = radiusM;
     full.county_geoid = (await countyAt(patch.lon!, patch.lat!))?.geoid ?? null;
   }

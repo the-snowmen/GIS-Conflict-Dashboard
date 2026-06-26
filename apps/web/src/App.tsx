@@ -30,7 +30,6 @@ interface EditingState {
   mode: "create" | "edit";
   ticket_id?: string;
   source: string;
-  status: string;
   lon: number;
   lat: number;
   lon0: number; // original position, to detect a move
@@ -53,7 +52,17 @@ interface TicketDetail {
   radius: number;
   lon: number;
   lat: number;
-  facilities: { owner?: string; voltage_class?: string }[];
+  facilities: ConflictFacility[];
+}
+
+// One conflicting facility row in the detail panel. id + geometry power the
+// hover-flash and click-to-inspect on the map; status feeds the popup.
+interface ConflictFacility {
+  id?: number;
+  owner?: string;
+  voltage_class?: string;
+  status?: string;
+  geometry?: Geometry;
 }
 
 // Minimal ticket shape shared by map-click (feature.properties) and the sidebar list.
@@ -77,21 +86,23 @@ export default function App() {
   const [conflict, setConflict] = useState<ConflictInfo | null>(null);
   const [ticketInfo, setTicketInfo] = useState<TicketDetail | null>(null);
   // Tickets panel: collapse + search/filter + create/edit form.
-  const [ticketsOpen, setTicketsOpen] = useState(false);
+  const [ticketsOpen, setTicketsOpen] = useState(() => typeof window === "undefined" || window.innerWidth > 900);
   const [tq, setTq] = useState("");
   const [fSource, setFSource] = useState("");
   const [fStatus, setFStatus] = useState("");
-  const [conflictsOnly, setConflictsOnly] = useState(false);
   const [editing, setEditing] = useState<EditingState | null>(null);
-  const [statusOptions, setStatusOptions] = useState<string[]>([]);
   const radiusRef = useRef(radius);
   radiusRef.current = radius;
-  const statusRef = useRef(statusOptions);
-  statusRef.current = statusOptions;
   // Last analyzed point, so moving the radius slider re-runs the conflict live.
   const lastPointRef = useRef<{ lng: number; lat: number; ticket: TicketLike | null } | null>(null);
   // Stable indirection so enableInspect (wired once on mount) always calls the latest handler.
   const onInspectRef = useRef<InspectHandler>(() => {});
+  // The facility "clicked" in the detail panel; its highlight stays lit (sticky)
+  // after the cursor leaves the row, until another is picked or the panel closes.
+  const selectedFacRef = useRef<ConflictFacility | null>(null);
+  // Collapsible side rail (open on desktop, closed on narrow viewports by default).
+  const [railOpen, setRailOpen] = useState(() => typeof window === "undefined" || window.innerWidth > 900);
+  const [legendOpen, setLegendOpen] = useState(false);
 
   // --- boot: map + data ----------------------------------------------------
   useEffect(() => {
@@ -104,7 +115,6 @@ export default function App() {
         c.enableInspect((layerId, feature, lngLat) => onInspectRef.current(layerId, feature, lngLat));
         const cfg = await config();
         setLabel(cfg.label);
-        setStatusOptions(cfg.ticketStatuses ?? []);
         const [facilities, counties, ticketsFc] = await Promise.all([
           facilitiesLayer(),
           countiesLayer(),
@@ -153,6 +163,8 @@ export default function App() {
       const c = ctrl.current;
       if (!c) return;
       c.hideInspectPopup();
+      c.highlightConflictFacility(null);
+      selectedFacRef.current = null;
       lastPointRef.current = { lng, lat, ticket: t };
       const geom = bufferPoint(lng, lat, radiusRef.current);
       const res = await runConflict(geom, [lng, lat], `${radiusRef.current} m live (ticket ${t.ticket_id})`, fit);
@@ -167,7 +179,16 @@ export default function App() {
         radius: radiusRef.current,
         lon: lng,
         lat,
-        facilities: res.facilities.features.map((f) => (f.properties ?? {}) as { owner?: string; voltage_class?: string }),
+        facilities: res.facilities.features.map((f) => {
+          const p = (f.properties ?? {}) as Record<string, unknown>;
+          return {
+            id: p.id as number | undefined,
+            owner: p.owner as string | undefined,
+            voltage_class: p.voltage_class as string | undefined,
+            status: p.status as string | undefined,
+            geometry: f.geometry,
+          };
+        }),
       });
     },
     [runConflict],
@@ -247,6 +268,8 @@ export default function App() {
     c.setData("aoi", { type: "FeatureCollection", features: [] });
     c.setData("conflict", { type: "FeatureCollection", features: [] });
     c.hideInspectPopup();
+    c.highlightConflictFacility(null);
+    selectedFacRef.current = null;
     lastPointRef.current = null;
     setConflict(null);
     setTicketInfo(null);
@@ -278,6 +301,26 @@ export default function App() {
     if (hexOn) c.setData("hex", await hexDensity(hexRes));
   }, [hexOn, hexRes]);
 
+  // Open the create form at a point: run the conflict analysis (so the AOI/conflicts
+  // show and status can be derived), drop a draggable marker that re-analyzes on move,
+  // and seed the source-only form. Shared by "New ticket" and "Save as ticket".
+  const beginCreateAt = useCallback(
+    (lng: number, lat: number) => {
+      const c = ctrl.current;
+      if (!c) return;
+      setRailOpen(true); // the create form lives in the rail — make sure it's visible
+      lastPointRef.current = { lng, lat, ticket: null };
+      void runConflict(bufferPoint(lng, lat, radiusRef.current), [lng, lat], `new ticket @ ${radiusRef.current} m`);
+      c.spawnDragMarker(lng, lat, (nlng, nlat) => {
+        setEditing((ed) => (ed ? { ...ed, lon: nlng, lat: nlat } : ed));
+        lastPointRef.current = { lng: nlng, lat: nlat, ticket: null };
+        void runConflict(bufferPoint(nlng, nlat, radiusRef.current), [nlng, nlat], `new ticket @ ${radiusRef.current} m`, false);
+      });
+      setEditing({ mode: "create", source: "", lon: lng, lat, lon0: lng, lat0: lat });
+    },
+    [runConflict],
+  );
+
   const startAddTicket = useCallback(() => {
     const c = ctrl.current;
     if (!c) return;
@@ -286,45 +329,51 @@ export default function App() {
     c.hideInspectPopup();
     c.removeDragMarker();
     setTicketInfo(null);
+    setRailOpen(true);
     setMode("addTicket");
     c.enableAddPoint((lng, lat) => {
       c.disableAddPoint();
       setMode("idle");
-      c.spawnDragMarker(lng, lat, (nlng, nlat) =>
-        setEditing((ed) => (ed ? { ...ed, lon: nlng, lat: nlat } : ed)),
-      );
-      setEditing({
-        mode: "create",
-        source: "",
-        status: statusRef.current[0] ?? "",
-        lon: lng,
-        lat,
-        lon0: lng,
-        lat0: lat,
-      });
+      beginCreateAt(lng, lat);
     });
-  }, []);
+  }, [beginCreateAt]);
 
-  const startEdit = useCallback((t: EditableTicket) => {
+  // Turn the current Buffer-point analysis into a ticket (same point, already scored).
+  const saveBufferAsTicket = useCallback(() => {
+    const lp = lastPointRef.current;
+    if (!lp || lp.ticket) return;
+    beginCreateAt(lp.lng, lp.lat);
+  }, [beginCreateAt]);
+
+  const startEdit = useCallback(
+    (t: EditableTicket) => {
+      const c = ctrl.current;
+      if (!c) return;
+      c.disableBufferClick();
+      c.stopPolygonDraw();
+      c.hideInspectPopup();
+      setRailOpen(true);
+      setMode("idle");
+      lastPointRef.current = { lng: t.lon, lat: t.lat, ticket: null };
+      void runConflict(bufferPoint(t.lon, t.lat, radiusRef.current), [t.lon, t.lat], `editing ${t.ticket_id} @ ${radiusRef.current} m`);
+      c.spawnDragMarker(t.lon, t.lat, (nlng, nlat) => {
+        setEditing((ed) => (ed ? { ...ed, lon: nlng, lat: nlat } : ed));
+        lastPointRef.current = { lng: nlng, lat: nlat, ticket: null };
+        void runConflict(bufferPoint(nlng, nlat, radiusRef.current), [nlng, nlat], `editing ${t.ticket_id} @ ${radiusRef.current} m`, false);
+      });
+      setEditing({ mode: "edit", ticket_id: t.ticket_id, source: t.source, lon: t.lon, lat: t.lat, lon0: t.lon, lat0: t.lat });
+    },
+    [runConflict],
+  );
+
+  // Drop the transient analysis (AOI/conflict/marker) drawn during create/edit.
+  const clearTransient = useCallback(() => {
     const c = ctrl.current;
-    if (!c) return;
-    c.disableBufferClick();
-    c.stopPolygonDraw();
-    c.hideInspectPopup();
-    setMode("idle");
-    c.spawnDragMarker(t.lon, t.lat, (nlng, nlat) =>
-      setEditing((ed) => (ed ? { ...ed, lon: nlng, lat: nlat } : ed)),
-    );
-    setEditing({
-      mode: "edit",
-      ticket_id: t.ticket_id,
-      source: t.source,
-      status: t.status,
-      lon: t.lon,
-      lat: t.lat,
-      lon0: t.lon,
-      lat0: t.lat,
-    });
+    c?.setData("aoi", { type: "FeatureCollection", features: [] });
+    c?.setData("conflict", { type: "FeatureCollection", features: [] });
+    c?.highlightConflictFacility(null);
+    lastPointRef.current = null;
+    setConflict(null);
   }, []);
 
   const saveEditing = useCallback(async () => {
@@ -332,13 +381,10 @@ export default function App() {
     const c = ctrl.current;
     if (!ed || !c) return;
     if (ed.mode === "create") {
-      await createTicket({ source: ed.source, status: ed.status, lon: ed.lon, lat: ed.lat, radiusM: radiusRef.current });
+      await createTicket({ source: ed.source, lon: ed.lon, lat: ed.lat, radiusM: radiusRef.current });
     } else if (ed.ticket_id) {
       const moved = ed.lon !== ed.lon0 || ed.lat !== ed.lat0;
-      const patch: { source?: string; status?: string; lon?: number; lat?: number } = {
-        source: ed.source,
-        status: ed.status,
-      };
+      const patch: { source?: string; lon?: number; lat?: number } = { source: ed.source };
       if (moved) {
         patch.lon = ed.lon;
         patch.lat = ed.lat;
@@ -347,13 +393,15 @@ export default function App() {
     }
     c.removeDragMarker();
     setEditing(null);
+    clearTransient();
     await refreshTickets();
-  }, [editing, refreshTickets]);
+  }, [editing, refreshTickets, clearTransient]);
 
   const cancelEditing = useCallback(() => {
     endTicketEdit();
     if (mode === "addTicket") setMode("idle");
-  }, [endTicketEdit, mode]);
+    clearTransient();
+  }, [endTicketEdit, mode, clearTransient]);
 
   const deleteEditing = useCallback(async () => {
     const ed = editing;
@@ -383,11 +431,10 @@ export default function App() {
         if (query && !`${t.ticket_id} ${t.source}`.toLowerCase().includes(query)) return false;
         if (fSource && t.source !== fSource) return false;
         if (fStatus && t.status !== fStatus) return false;
-        if (conflictsOnly && !(t.conflict_count > 0)) return false;
         return true;
       })
       .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
-  }, [tickets, tq, fSource, fStatus, conflictsOnly]);
+  }, [tickets, tq, fSource, fStatus]);
 
   // --- hex toggle ----------------------------------------------------------
   const toggleHex = useCallback(async () => {
@@ -410,23 +457,69 @@ export default function App() {
     setKmzName(`${file.name} — ${fc.features.length} features`);
   }, []);
 
-  return (
-    <div className="app">
-      <aside className="sidebar">
-        <h1>GIS Conflict Dashboard</h1>
-        <p className="subtitle">
-          Fully client-side demo · DuckDB-WASM + a custom Rust/WASM geo engine. {label && <>Region: {label}.</>}
-        </p>
+  // --- conflicting-facility interactions (detail panel) --------------------
+  // Hover a facility row -> pulse its line on the map.
+  const hoverFacility = useCallback((geom: Geometry | null) => {
+    ctrl.current?.highlightConflictFacility(geom);
+  }, []);
 
+  // Leave a row -> drop the pulse, but re-assert the clicked facility's steady
+  // highlight if one is selected (so a click stays lit after the cursor moves off).
+  const leaveFacility = useCallback(() => {
+    ctrl.current?.highlightConflictFacility(selectedFacRef.current?.geometry ?? null, false);
+  }, []);
+
+  // Click a facility row -> fly to it, keep it lit, and open its detail popup
+  // (the same popup the map uses for a direct conflict-line click).
+  const inspectFacility = useCallback((f: ConflictFacility) => {
+    const c = ctrl.current;
+    if (!c || !f.geometry) return;
+    selectedFacRef.current = f;
+    const center = lineCentroid(f.geometry) as [number, number];
+    c.map.flyTo({ center, zoom: Math.max(c.map.getZoom(), 13), duration: 600 });
+    c.highlightConflictFacility(f.geometry, false); // sticky (no pulse)
+    c.showInspectPopup(
+      center,
+      buildPopupNode("conflict-line", {
+        owner: f.owner,
+        voltage_class: f.voltage_class,
+        status: f.status,
+        id: f.id,
+      }),
+    );
+  }, []);
+
+  return (
+    <div className={`app${railOpen ? "" : " rail-collapsed"}`}>
+      <header className="topbar">
+        <button
+          className="rail-toggle"
+          onClick={() => setRailOpen((o) => !o)}
+          title={railOpen ? "Hide panel" : "Show panel"}
+          aria-label="Toggle side panel"
+        >
+          ☰
+        </button>
+        <div className="brand">
+          <span className="brand-mark" aria-hidden>◈</span>
+          <div className="brand-text">
+            <h1>GIS Conflict Dashboard</h1>
+            <p className="brand-sub">
+              Client-side · DuckDB-WASM + Rust/WASM geo engine{label ? ` · ${label}` : ""}
+            </p>
+          </div>
+        </div>
         {stats && (
-          <div className="stat-grid">
-            <Stat n={stats.facilities} l="facilities" />
-            <Stat n={stats.tickets} l="tickets" />
-            <Stat n={stats.conflicts} l="with conflicts" />
-            <Stat n={stats.counties.length} l="counties" />
+          <div className="chips">
+            <Chip n={stats.facilities} l="facilities" title="Transmission features in the region (dataset total — not the impacted count)" />
+            <Chip n={stats.tickets} l="tickets" title="Work points (synthetic sample)" />
+            <Chip n={stats.conflicts} l="flagged" tone={stats.conflicts > 0 ? "danger" : undefined} title="Tickets with ≥1 conflicting facility" />
+            <Chip n={stats.counties.length} l="counties" title="Counties covered" />
           </div>
         )}
+      </header>
 
+      <aside className="rail">
         <section className="card">
           <h2>Conflict analysis</h2>
           <div className="row">
@@ -471,17 +564,14 @@ export default function App() {
                 <option key={s} value={s} />
               ))}
             </datalist>
-            <label className="fld">
-              Status
-              <select
-                value={editing.status}
-                onChange={(e) => setEditing((ed) => (ed ? { ...ed, status: e.target.value } : ed))}
-              >
-                {statusOptions.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </label>
+            <div className="fld">
+              Status <span className="auto-tag">auto</span>
+              <div className={`derived ${conflict && conflict.count > 0 ? "conflict" : "clear"}`}>
+                {conflict
+                  ? `${conflict.count} conflicting ${conflict.count === 1 ? "facility" : "facilities"} at ${radius} m → ${conflict.count > 0 ? "potential_conflict" : "no_conflict"}`
+                  : "analyzing conflicts…"}
+              </div>
+            </div>
             <div className="fld-coords muted">
               Point: {editing.lat.toFixed(5)}, {editing.lon.toFixed(5)} · drag the marker to move
             </div>
@@ -489,7 +579,7 @@ export default function App() {
               <button
                 className="btn active"
                 onClick={() => void saveEditing()}
-                disabled={!editing.source || !editing.status}
+                disabled={!editing.source}
               >
                 Save
               </button>
@@ -516,89 +606,19 @@ export default function App() {
         </section>
 
         <section className="card">
-          <h2>Legend</h2>
-          <div className="legend">
-            <LegendItem c="#5b9dff" t="Our transmission (eligible)" kind="line" />
-            <LegendItem c="#54607d" t="Other-owner transmission" kind="line" />
-            <LegendItem c="#3ecf8e" t="Ticket — no conflict" kind="point" />
-            <LegendItem c="#ff6b6b" t="Ticket — potential conflict" kind="point" />
-            <LegendItem c="#ffd166" t="Active AOI" kind="polygon" />
-            <LegendItem c="#ff3b3b" t="Conflicting facility" kind="line" />
-          </div>
-        </section>
-
-        <section className="card">
-          <button className="panel-head" onClick={() => setTicketsOpen((o) => !o)}>
-            <h2>Tickets ({tickets.length.toLocaleString()})</h2>
-            <span className="chev">{ticketsOpen ? "▾" : "▸"}</span>
+          <button className="panel-head" onClick={() => setLegendOpen((o) => !o)}>
+            <h2>Legend</h2>
+            <span className="chev">{legendOpen ? "▾" : "▸"}</span>
           </button>
-          {ticketsOpen && (
-            <>
-              <div className="ticket-controls">
-                <input
-                  className="ti"
-                  placeholder="Search id / source…"
-                  value={tq}
-                  onChange={(e) => setTq(e.target.value)}
-                />
-                <div className="row">
-                  <select value={fSource} onChange={(e) => setFSource(e.target.value)}>
-                    <option value="">all sources</option>
-                    {sourceOptions.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                  <select value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
-                    <option value="">all statuses</option>
-                    {statusFilterOptions.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                </div>
-                <label className="chk">
-                  <input
-                    type="checkbox"
-                    checked={conflictsOnly}
-                    onChange={(e) => setConflictsOnly(e.target.checked)}
-                  />
-                  conflicts only
-                </label>
-                <button className={`btn ${mode === "addTicket" ? "active" : ""}`} onClick={startAddTicket}>
-                  ＋ New ticket
-                </button>
-                {mode === "addTicket" && !editing && (
-                  <p className="muted">Click the map to place the ticket.</p>
-                )}
-              </div>
-              <div className="ticket-list">
-                {filteredTickets.slice(0, 200).map((t) => (
-                  <div key={t.ticket_id} className="ticket">
-                    <span
-                      className="ticket-main"
-                      onClick={() => {
-                        ctrl.current?.map.flyTo({ center: [t.lon, t.lat], zoom: 14 });
-                        void handleTicketSelect(t, t.lon, t.lat);
-                      }}
-                    >
-                      {t.ticket_id}
-                      {t.origin === "user" && <span className="tag">user</span>}
-                      <br />
-                      <span className="meta">{t.source}</span>
-                    </span>
-                    <span className="ticket-side">
-                      <span className={`pill ${t.conflict_count > 0 ? "conflict" : "clear"}`}>
-                        {t.conflict_count > 0 ? `${t.conflict_count} conflict` : "clear"}
-                      </span>
-                      <button className="mini" title="Edit ticket" onClick={() => startEdit(t)}>✎</button>
-                    </span>
-                  </div>
-                ))}
-                {filteredTickets.length === 0 && <p className="muted">No matching tickets.</p>}
-                {filteredTickets.length > 200 && (
-                  <p className="muted">Showing 200 of {filteredTickets.length.toLocaleString()}.</p>
-                )}
-              </div>
-            </>
+          {legendOpen && (
+            <div className="legend">
+              <LegendItem c="#5b9dff" t="Our transmission (eligible)" kind="line" />
+              <LegendItem c="#54607d" t="Other-owner transmission" kind="line" />
+              <LegendItem c="#3ecf8e" t="Ticket — no conflict" kind="point" />
+              <LegendItem c="#ff6b6b" t="Ticket — potential conflict" kind="point" />
+              <LegendItem c="#ffd166" t="Active AOI" kind="polygon" />
+              <LegendItem c="#ff3b3b" t="Conflicting facility" kind="line" />
+            </div>
           )}
         </section>
 
@@ -610,7 +630,6 @@ export default function App() {
 
       <div className="map-wrap">
         <div id="map" ref={mapEl} />
-        <div className="banner">browser-only · no backend · DuckDB-WASM + Rust/WASM</div>
         {conflict && (
           <div className="result">
             {conflict.count > 0 ? (
@@ -619,13 +638,35 @@ export default function App() {
               <span>✓ <strong>no</strong> conflicts</span>
             )}
             <span className="muted">· {conflict.jurisdiction ?? "outside tracked counties"} · {conflict.via}</span>
+            {lastPointRef.current && !lastPointRef.current.ticket && !editing && (
+              <button className="btn-inline" onClick={saveBufferAsTicket}>＋ Save as ticket</button>
+            )}
           </div>
         )}
         {ticketInfo && (
-          <div className="ticket-panel card">
+          <aside className="inspector card">
             <div className="tp-head">
               <h2>Ticket detail</h2>
               <div className="tp-actions">
+                <button
+                  className="mini"
+                  title="Re-center on ticket"
+                  aria-label="Re-center map on ticket"
+                  onClick={() =>
+                    void handleTicketSelect(
+                      {
+                        ticket_id: ticketInfo.ticket_id,
+                        source: ticketInfo.source,
+                        status: ticketInfo.status,
+                        conflict_count: ticketInfo.storedCount,
+                      },
+                      ticketInfo.lon,
+                      ticketInfo.lat,
+                    )
+                  }
+                >
+                  ⌖
+                </button>
                 <button
                   className="mini"
                   title="Edit ticket"
@@ -649,29 +690,48 @@ export default function App() {
             <div className="tp-row"><span className="muted">Status</span><span>{ticketInfo.status}</span></div>
             <div className="tp-row"><span className="muted">County</span><span>{ticketInfo.county ?? "—"}</span></div>
             <div className="tp-row">
-              <span className="muted">Recorded (intake)</span>
+              <span className="muted">
+                Recorded (intake)
+                <Info title="Conflict count captured at intake, using the ticket's recorded radius and a planar (UTM) buffer." />
+              </span>
               <span className={`pill ${ticketInfo.storedCount > 0 ? "conflict" : "clear"}`}>
                 {ticketInfo.storedCount > 0 ? `${ticketInfo.storedCount} conflict` : "clear"}
               </span>
             </div>
             <div className="tp-row">
-              <span className="muted">Live · {ticketInfo.radius} m</span>
+              <span className="muted">
+                Live · {ticketInfo.radius} m
+                <Info title="Recomputed now at the current slider radius using a geodesic buffer. It differs from Recorded because the radius and the buffer method differ — this is expected." />
+              </span>
               <span className={`pill ${ticketInfo.liveCount > 0 ? "conflict" : "clear"}`}>
                 {ticketInfo.liveCount > 0 ? `${ticketInfo.liveCount} conflict` : "clear"}
               </span>
             </div>
             {ticketInfo.facilities.length > 0 && (
               <div className="tp-facs">
-                <h3>Conflicting facilities</h3>
+                <h3>Conflicting facilities <span className="muted">· click to inspect</span></h3>
                 {ticketInfo.facilities.map((f, i) => (
-                  <div key={i} className="tp-fac">
-                    <span>{f.owner ?? "—"}</span>
+                  <button
+                    key={f.id ?? i}
+                    type="button"
+                    className="tp-fac"
+                    title="Click to inspect · hover to locate on map"
+                    onMouseEnter={() => hoverFacility(f.geometry ?? null)}
+                    onMouseLeave={leaveFacility}
+                    onFocus={() => hoverFacility(f.geometry ?? null)}
+                    onBlur={leaveFacility}
+                    onClick={() => inspectFacility(f)}
+                  >
+                    <span className="tp-fac-name">
+                      {f.owner ?? "—"}
+                      {f.id != null && <span className="tp-fac-id">#{f.id}</span>}
+                    </span>
                     <span className="meta">{f.voltage_class ?? ""}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
-          </div>
+          </aside>
         )}
         {phase !== "ready" && (
           <div className="loading">
@@ -682,16 +742,102 @@ export default function App() {
           </div>
         )}
       </div>
+
+      <section className={`dock${ticketsOpen ? " open" : ""}`}>
+        <div className="dock-head">
+          <button className="panel-head dock-title" onClick={() => setTicketsOpen((o) => !o)}>
+            <span className="chev">{ticketsOpen ? "▾" : "▸"}</span>
+            <h2>
+              Tickets ({filteredTickets.length === tickets.length
+                ? tickets.length.toLocaleString()
+                : `${filteredTickets.length.toLocaleString()} / ${tickets.length.toLocaleString()}`})
+            </h2>
+          </button>
+          {ticketsOpen && (
+            <div className="dock-filters">
+              <input
+                className="ti"
+                placeholder="Search id / source…"
+                value={tq}
+                onChange={(e) => setTq(e.target.value)}
+              />
+              <select value={fSource} onChange={(e) => setFSource(e.target.value)}>
+                <option value="">all sources</option>
+                {sourceOptions.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <select value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+                <option value="">all statuses</option>
+                {statusFilterOptions.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <button className={`btn ${mode === "addTicket" ? "active" : ""}`} onClick={startAddTicket}>
+                ＋ New ticket
+              </button>
+              {mode === "addTicket" && !editing && (
+                <span className="muted">Click the map to place the ticket.</span>
+              )}
+            </div>
+          )}
+        </div>
+        {ticketsOpen && (
+          <div className="dock-list">
+            {filteredTickets.slice(0, 200).map((t) => (
+              <div key={t.ticket_id} className="tk-card">
+                <button
+                  className="tk-main"
+                  onClick={() => {
+                    ctrl.current?.map.flyTo({ center: [t.lon, t.lat], zoom: 14 });
+                    void handleTicketSelect(t, t.lon, t.lat);
+                  }}
+                >
+                  <span className="tk-id">
+                    {t.ticket_id}
+                    {t.origin === "user" && <span className="tag">user</span>}
+                  </span>
+                  <span className="meta">{t.source}</span>
+                </button>
+                <span className="tk-foot">
+                  <span className={`pill ${t.conflict_count > 0 ? "conflict" : "clear"}`}>
+                    {t.conflict_count > 0 ? `${t.conflict_count} conflict` : "clear"}
+                  </span>
+                  <button className="mini" title="Edit ticket" onClick={() => startEdit(t)}>✎</button>
+                </span>
+              </div>
+            ))}
+            {filteredTickets.length === 0 && (
+              <div className="empty">
+                <span aria-hidden>🔍</span>
+                No tickets match these filters.
+              </div>
+            )}
+            {filteredTickets.length > 200 && (
+              <p className="muted dock-more">Showing 200 of {filteredTickets.length.toLocaleString()}.</p>
+            )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
 
-function Stat({ n, l }: { n: number; l: string }) {
+function Chip({ n, l, tone, title }: { n: number; l: string; tone?: "danger"; title?: string }) {
   return (
-    <div className="stat">
-      <div className="num">{n.toLocaleString()}</div>
-      <div className="lbl">{l}</div>
+    <div className={`chip${tone ? ` chip-${tone}` : ""}`} title={title}>
+      <span className="chip-n">{n.toLocaleString()}</span>
+      <span className="chip-l">{l}</span>
     </div>
+  );
+}
+
+// A focusable ⓘ that surfaces an explanation via the native tooltip.
+function Info({ title }: { title: string }) {
+  return (
+    <span className="tp-info" title={title} tabIndex={0} role="img" aria-label={title}>
+      ⓘ
+    </span>
   );
 }
 
@@ -753,6 +899,18 @@ function buildPopupNode(layerId: string, props: Record<string, unknown>): HTMLEl
     root.appendChild(row);
   }
   return root;
+}
+
+// A vertex on a line feature (true midpoint vertex), so a popup/flyTo anchor
+// always lands on the line itself rather than off it.
+function lineCentroid(geom: Geometry): Position {
+  let pts: Position[] = [];
+  if (geom.type === "LineString") pts = geom.coordinates;
+  else if (geom.type === "MultiLineString") pts = geom.coordinates.flat();
+  else if (geom.type === "Point") return geom.coordinates;
+  else if (geom.type === "Polygon") return polygonCentroid(geom);
+  if (pts.length === 0) return [0, 0];
+  return pts[Math.floor(pts.length / 2)];
 }
 
 // Average of a polygon's exterior ring — good enough to pick a jurisdiction.
