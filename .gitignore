@@ -31,3 +31,4 @@ CLAUDE.md
 /.githooks/
 /.github/workflows/ci.yml
 /workflow/
+/fresh-eyes/

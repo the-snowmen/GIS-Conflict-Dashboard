@@ -1,6 +1,7 @@
 // Thin imperative wrapper around MapLibre + terra-draw so the React layer stays declarative.
 import maplibregl, {
   Map as MlMap,
+  FitBoundsOptions,
   GeoJSONSource,
   LngLat,
   LngLatLike,
@@ -49,6 +50,7 @@ export type InspectHandler = (layerId: string, feature: MapGeoJSONFeature, lngLa
 // Clickable layers, highest priority first. queryRenderedFeatures returns hits in render
 // order (not this order), so we walk this list and take the first layer with a hit.
 const INTERACTIVE_LAYERS = [
+  "tickets-conflict",
   "tickets-circle",
   "conflict-line",
   "kmz-point",
@@ -70,6 +72,8 @@ export class MapController {
   private onInspectClick?: (e: maplibregl.MapMouseEvent) => void;
   private onInspectMove?: (e: maplibregl.MapMouseEvent) => void;
   private highlightRaf?: number;
+  // Bounds of the loaded dataset, so the "zoom to data" control can re-home the view.
+  private homeBounds?: [[number, number], [number, number]];
 
   constructor(container: HTMLElement) {
     this.map = new maplibregl.Map({
@@ -86,6 +90,7 @@ export class MapController {
     // Required OSM/CARTO attribution, collapsed to a compact ⓘ button by default.
     this.map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
     this.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+    this.map.addControl(this.homeControl(), "bottom-right");
     this.map.on("click", (e) => {
       if (this.clickMode === "buffer" && this.onBufferClick) {
         this.onBufferClick(e.lngLat.lng, e.lngLat.lat);
@@ -152,14 +157,32 @@ export class MapController {
       paint: { "circle-radius": 5, "circle-color": "#c08bff" },
     });
 
+    // Conflict vs clear differ by SHAPE (triangle vs dot), not color alone, so
+    // red-green colorblind users can tell them apart. Clear tickets = teal dot;
+    // conflict tickets = a warning-triangle icon drawn at runtime (keyless — the
+    // raster basemap has no glyphs server, so we register an ImageData instead).
+    if (!this.map.hasImage("conflict-tri")) {
+      this.map.addImage("conflict-tri", warningTriangle("#ff6b6b", "#0f1420"), { pixelRatio: 2 });
+    }
     this.map.addLayer({
       id: "tickets-circle", type: "circle", source: "tickets",
+      filter: ["==", ["get", "conflict_count"], 0],
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 2.5, 13, 5],
-        "circle-color": ["case", [">", ["get", "conflict_count"], 0], "#ff6b6b", "#3ecf8e"],
+        "circle-color": "#22d3c5",
         "circle-opacity": 0.85,
         "circle-stroke-width": 0.5,
         "circle-stroke-color": "#0f1420",
+      },
+    });
+    this.map.addLayer({
+      id: "tickets-conflict", type: "symbol", source: "tickets",
+      filter: [">", ["get", "conflict_count"], 0],
+      layout: {
+        "icon-image": "conflict-tri",
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 8, 0.62, 13, 1.1],
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
       },
     });
 
@@ -230,9 +253,44 @@ export class MapController {
     }
   }
 
-  fitTo(fc: FeatureCollection, padding = 40) {
+  fitTo(fc: FeatureCollection, padding = 40, maxZoom?: number) {
     const b = bounds(fc);
-    if (b) this.map.fitBounds(b, { padding, duration: 600 });
+    if (!b) return;
+    // Only set maxZoom when given — passing `maxZoom: undefined` makes maplibre
+    // compute Math.min(maxZoom, undefined) = NaN and throw "Invalid LngLat".
+    const opts: FitBoundsOptions = { padding, duration: 600 };
+    if (maxZoom !== undefined) opts.maxZoom = maxZoom;
+    this.map.fitBounds(b, opts);
+  }
+
+  /** Remember the dataset extent so the "zoom to data" control can return to it. */
+  rememberHome(fc: FeatureCollection) {
+    this.homeBounds = bounds(fc) ?? this.homeBounds;
+  }
+
+  /** Re-fit the map to the remembered dataset extent (the "zoom to data" control). */
+  goHome() {
+    if (this.homeBounds) this.map.fitBounds(this.homeBounds, { padding: 60, duration: 600 });
+  }
+
+  /** A custom MapLibre control: one button that re-homes the view to the data extent. */
+  private homeControl(): maplibregl.IControl {
+    return {
+      onAdd: () => {
+        const div = document.createElement("div");
+        div.className = "maplibregl-ctrl maplibregl-ctrl-group";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "ml-home-btn";
+        btn.title = "Zoom to data";
+        btn.setAttribute("aria-label", "Zoom to data extent");
+        btn.textContent = "⤢";
+        btn.addEventListener("click", () => this.goHome());
+        div.appendChild(btn);
+        return div;
+      },
+      onRemove: () => {},
+    };
   }
 
   // --- AOI creation modes --------------------------------------------------
@@ -372,6 +430,34 @@ export class MapController {
     }
     this.map.remove();
   }
+}
+
+// A small upward warning-triangle (with an exclamation mark) as ImageData, for the
+// conflict-ticket symbol layer. Built on a canvas so it needs no external icon asset.
+function warningTriangle(fill: string, stroke: string): ImageData {
+  const size = 30;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new ImageData(size, size);
+  const pad = 3;
+  ctx.beginPath();
+  ctx.moveTo(size / 2, pad); // top vertex
+  ctx.lineTo(size - pad, size - pad); // bottom-right
+  ctx.lineTo(pad, size - pad); // bottom-left
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = stroke;
+  ctx.stroke();
+  // exclamation mark
+  ctx.fillStyle = stroke;
+  ctx.fillRect(size / 2 - 1, size * 0.42, 2, size * 0.26);
+  ctx.fillRect(size / 2 - 1, size * 0.74, 2, 2);
+  return ctx.getImageData(0, 0, size, size);
 }
 
 // Compute [[minX,minY],[maxX,maxY]] from a FeatureCollection.

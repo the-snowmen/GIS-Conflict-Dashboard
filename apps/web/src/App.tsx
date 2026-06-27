@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { Geometry, Position } from "geojson";
+import type { FeatureCollection, Geometry, Position } from "geojson";
 import type { LngLat, MapGeoJSONFeature } from "maplibre-gl";
 import { MapController, type InspectHandler } from "./map";
+import { conflictsToCsv, conflictsToGeoJson, downloadText, ticketsToCsv } from "./services/export";
 import {
   allTicketsMerged,
   bufferPoint,
@@ -102,7 +103,20 @@ export default function App() {
   const selectedFacRef = useRef<ConflictFacility | null>(null);
   // Collapsible side rail (open on desktop, closed on narrow viewports by default).
   const [railOpen, setRailOpen] = useState(() => typeof window === "undefined" || window.innerWidth > 900);
-  const [legendOpen, setLegendOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(true);
+  // Screen-reader announcement of the latest conflict result (aria-live region).
+  const [liveMsg, setLiveMsg] = useState("");
+  // Keyboard/no-mouse path to drop a buffer: type a coordinate.
+  const [coordLat, setCoordLat] = useState("");
+  const [coordLng, setCoordLng] = useState("");
+  // First-run welcome callout (dismissed flag persisted in localStorage).
+  const [welcomeDismissed, setWelcomeDismissed] = useState(
+    () => typeof window !== "undefined" && window.localStorage.getItem("gcd.welcome.dismissed") === "1",
+  );
+  // Last analyzed AOI geom + intersected facilities, so the export buttons can serialize them.
+  const lastResultRef = useRef<{ geom: Geometry; facilities: FeatureCollection } | null>(null);
+  const kmzInputRef = useRef<HTMLInputElement>(null);
+  const inspectorRef = useRef<HTMLElement>(null);
 
   // --- boot: map + data ----------------------------------------------------
   useEffect(() => {
@@ -123,6 +137,7 @@ export default function App() {
         c.setData("facilities", facilities);
         c.setData("counties", counties);
         c.setData("tickets", ticketsFc);
+        c.rememberHome(facilities);
         c.fitTo(facilities, 60);
         setStats(await loadStats());
         setTickets(await allTicketsMerged());
@@ -149,7 +164,15 @@ export default function App() {
       c.setData("conflict", res.facilities);
       const jur = await jurisdictionFor(at[0], at[1]);
       setConflict({ count: res.count, jurisdiction: jur, via });
-      if (fit) c.fitTo({ type: "FeatureCollection", features: [{ type: "Feature", geometry: geom, properties: {} }] }, 120);
+      lastResultRef.current = { geom, facilities: res.facilities };
+      const where = jur ? `in ${jur}` : "outside the coverage area";
+      setLiveMsg(
+        res.count > 0
+          ? `${res.count} facility conflict${res.count === 1 ? "" : "s"} ${where}.`
+          : `No conflicts ${where}.`,
+      );
+      // maxZoom keeps a small buffer from slamming the view to a deep-zoom empty void.
+      if (fit) c.fitTo({ type: "FeatureCollection", features: [{ type: "Feature", geometry: geom, properties: {} }] }, 120, 15);
       return res;
     },
     [],
@@ -237,6 +260,7 @@ export default function App() {
     endTicketEdit();
     setTicketInfo(null);
     setMode("buffer");
+    if (window.innerWidth <= 900) setRailOpen(false); // free the map to receive the click on mobile
     c.enableBufferClick((lng, lat) => {
       lastPointRef.current = { lng, lat, ticket: null };
       const geom = bufferPoint(lng, lat, radiusRef.current);
@@ -252,6 +276,7 @@ export default function App() {
     endTicketEdit();
     setTicketInfo(null);
     setMode("draw");
+    if (window.innerWidth <= 900) setRailOpen(false);
     c.startPolygonDraw((geom) => {
       lastPointRef.current = null;
       setMode("idle");
@@ -329,7 +354,7 @@ export default function App() {
     c.hideInspectPopup();
     c.removeDragMarker();
     setTicketInfo(null);
-    setRailOpen(true);
+    setRailOpen(window.innerWidth > 900); // on mobile, free the map so the placement tap lands
     setMode("addTicket");
     c.enableAddPoint((lng, lat) => {
       c.disableAddPoint();
@@ -489,8 +514,81 @@ export default function App() {
     );
   }, []);
 
+  // --- non-mouse buffer placement ------------------------------------------
+  // Drop a geodesic buffer at an explicit coordinate (keyboard / coord-field path).
+  const dropBufferAt = useCallback(
+    (lng: number, lat: number) => {
+      const c = ctrl.current;
+      if (!c) return;
+      c.hideInspectPopup();
+      setTicketInfo(null);
+      lastPointRef.current = { lng, lat, ticket: null };
+      c.map.flyTo({ center: [lng, lat], zoom: Math.max(c.map.getZoom(), 13), duration: 600 });
+      const geom = bufferPoint(lng, lat, radiusRef.current);
+      void runConflict(geom, [lng, lat], `${radiusRef.current} m geodesic buffer (geokit)`);
+    },
+    [runConflict],
+  );
+
+  const submitCoord = useCallback(() => {
+    const lat = Number(coordLat);
+    const lng = Number(coordLng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+    dropBufferAt(lng, lat);
+  }, [coordLat, coordLng, dropBufferAt]);
+
+  // While in buffer mode, Enter (outside a form field) drops a buffer at the map center.
+  useEffect(() => {
+    if (mode !== "buffer") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      const tag = (e.target as HTMLElement | null)?.tagName ?? "";
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) return;
+      const c = ctrl.current;
+      if (!c) return;
+      const ctr = c.map.getCenter();
+      dropBufferAt(ctr.lng, ctr.lat);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mode, dropBufferAt]);
+
+  // Escape closes the topmost transient surface (edit form > detail panel > mobile rail).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (editing) cancelEditing();
+      else if (ticketInfo) clearAoi();
+      else if (railOpen && window.innerWidth <= 900) setRailOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editing, ticketInfo, railOpen, cancelEditing, clearAoi]);
+
+  // Move focus into the ticket detail panel when it opens (screen-reader + keyboard).
+  useEffect(() => {
+    if (ticketInfo) inspectorRef.current?.focus();
+  }, [ticketInfo?.ticket_id]);
+
+  // --- exports -------------------------------------------------------------
+  const exportConflictGeoJson = useCallback(() => {
+    const r = lastResultRef.current;
+    if (!r) return;
+    downloadText("conflicts.geojson", "application/geo+json", JSON.stringify(conflictsToGeoJson(r.geom, r.facilities), null, 2));
+  }, []);
+  const exportConflictCsv = useCallback(() => {
+    const r = lastResultRef.current;
+    if (!r) return;
+    downloadText("conflicts.csv", "text/csv", conflictsToCsv(r.facilities));
+  }, []);
+  const exportTicketsCsv = useCallback(() => {
+    downloadText("tickets.csv", "text/csv", ticketsToCsv(filteredTickets));
+  }, [filteredTickets]);
+
   return (
     <div className={`app${railOpen ? "" : " rail-collapsed"}`}>
+      <a className="skip-link" href="#main-map">Skip to map</a>
+      <div className="sr-only" role="status" aria-live="polite">{liveMsg}</div>
       <header className="topbar">
         <button
           className="rail-toggle"
@@ -505,7 +603,9 @@ export default function App() {
           <div className="brand-text">
             <h1>GIS Conflict Dashboard</h1>
             <p className="brand-sub">
-              Client-side · DuckDB-WASM + Rust/WASM geo engine{label ? ` · ${label}` : ""}
+              Find work tickets that conflict with transmission lines
+              <Info title="Runs entirely in your browser — no backend. Spatial SQL via DuckDB-WASM; geodesic buffering, H3 density, and KMZ parsing via a Rust/WASM geo engine." />
+              {label ? ` · ${label}` : ""}
             </p>
           </div>
         </div>
@@ -526,22 +626,44 @@ export default function App() {
             <button className={`btn ${mode === "buffer" ? "active" : ""}`} onClick={setBufferMode}>
               ◎ Buffer point
             </button>
-            <button className={`btn ${mode === "draw" ? "active" : ""}`} onClick={setDrawMode}>
+            <button
+              className={`btn ${mode === "draw" ? "active" : ""}`}
+              onClick={setDrawMode}
+              title="Draw an Area of Interest (AOI) polygon"
+            >
               ✐ Draw AOI
             </button>
           </div>
-          <label className="muted" style={{ display: "block", margin: "10px 0 4px" }}>
+          <label className="muted" htmlFor="radius" style={{ display: "block", margin: "10px 0 4px" }}>
             Buffer radius: <strong>{radius} m</strong>
           </label>
           <input
+            id="radius"
             type="range" min={25} max={500} step={25} value={radius}
             onChange={(e) => setRadius(Number(e.target.value))} style={{ width: "100%" }}
           />
+          {/* Non-mouse path: type a coordinate to drop the buffer (also a CRS readout). */}
+          <div className="coord-entry">
+            <input
+              type="number" inputMode="decimal" step="any" placeholder="lat" name="lat"
+              aria-label="Latitude" value={coordLat}
+              onChange={(e) => setCoordLat(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitCoord()}
+            />
+            <input
+              type="number" inputMode="decimal" step="any" placeholder="lng" name="lng"
+              aria-label="Longitude" value={coordLng}
+              onChange={(e) => setCoordLng(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitCoord()}
+            />
+            <button className="btn" onClick={submitCoord}>Drop buffer</button>
+          </div>
+          <p className="muted coord-note">lat, lng · WGS84 / EPSG:4326</p>
           <div style={{ marginTop: 8 }}>
             <button className="btn danger" onClick={clearAoi}>Clear AOI</button>
           </div>
-          {mode === "buffer" && <p className="muted">Click the map to drop a work point.</p>}
-          {mode === "draw" && <p className="muted">Click to add vertices; double-click to finish.</p>}
+          {mode === "buffer" && <p className="muted">Click the map to drop a work point, or press Enter to drop one at the map center.</p>}
+          {mode === "draw" && <p className="muted">Click to add vertices; double-click to finish the Area of Interest (AOI).</p>}
         </section>
 
         {editing && (
@@ -595,13 +717,15 @@ export default function App() {
           <button className={`btn ${hexOn ? "active" : ""}`} onClick={toggleHex}>
             ⬡ H3 ticket density {hexOn ? "(on)" : "(off)"}
           </button>
-          <label className="btn" style={{ marginTop: 8 }}>
+          <button className="btn" style={{ marginTop: 8 }} onClick={() => kmzInputRef.current?.click()}>
             ⤓ Import KMZ / KML
-            <input
-              type="file" accept=".kmz,.kml" style={{ display: "none" }}
-              onChange={(e) => e.target.files?.[0] && onKmz(e.target.files[0])}
-            />
-          </label>
+          </button>
+          <input
+            ref={kmzInputRef}
+            className="sr-only" tabIndex={-1} aria-hidden="true"
+            type="file" accept=".kmz,.kml"
+            onChange={(e) => e.target.files?.[0] && onKmz(e.target.files[0])}
+          />
           {kmzName && <p className="muted">{kmzName}</p>}
         </section>
 
@@ -614,8 +738,8 @@ export default function App() {
             <div className="legend">
               <LegendItem c="#5b9dff" t="Our transmission (eligible)" kind="line" />
               <LegendItem c="#54607d" t="Other-owner transmission" kind="line" />
-              <LegendItem c="#3ecf8e" t="Ticket — no conflict" kind="point" />
-              <LegendItem c="#ff6b6b" t="Ticket — potential conflict" kind="point" />
+              <LegendItem c="#22d3c5" t="Ticket — no conflict (dot)" kind="point" />
+              <LegendItem c="#ff6b6b" t="Ticket — potential conflict (triangle)" kind="tri" />
               <LegendItem c="#ffd166" t="Active AOI" kind="polygon" />
               <LegendItem c="#ff3b3b" t="Conflicting facility" kind="line" />
             </div>
@@ -628,8 +752,26 @@ export default function App() {
         </div>
       </aside>
 
-      <div className="map-wrap">
+      <main className="map-wrap" id="main-map">
         <div id="map" ref={mapEl} />
+        {phase === "ready" && !conflict && !ticketInfo && !welcomeDismissed && (
+          <div className="welcome">
+            <span>
+              Find work tickets that conflict with transmission lines — <strong>click a ticket below</strong> to
+              start, or drop a <strong>Buffer point</strong>.
+            </span>
+            <button
+              className="welcome-x"
+              aria-label="Dismiss"
+              onClick={() => {
+                setWelcomeDismissed(true);
+                window.localStorage.setItem("gcd.welcome.dismissed", "1");
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {conflict && (
           <div className="result">
             {conflict.count > 0 ? (
@@ -637,14 +779,18 @@ export default function App() {
             ) : (
               <span>✓ <strong>no</strong> conflicts</span>
             )}
-            <span className="muted">· {conflict.jurisdiction ?? "outside tracked counties"} · {conflict.via}</span>
-            {lastPointRef.current && !lastPointRef.current.ticket && !editing && (
-              <button className="btn-inline" onClick={saveBufferAsTicket}>＋ Save as ticket</button>
-            )}
+            <span className="muted">· {conflict.jurisdiction ?? "outside the coverage area"} · {conflict.via}</span>
+            <span className="result-actions">
+              <button className="btn-inline ghost" onClick={exportConflictGeoJson} title="Download buffer + conflicting facilities as GeoJSON (WGS84)">⤓ GeoJSON</button>
+              <button className="btn-inline ghost" onClick={exportConflictCsv} title="Download conflicting facilities as CSV">⤓ CSV</button>
+              {lastPointRef.current && !lastPointRef.current.ticket && !editing && (
+                <button className="btn-inline" onClick={saveBufferAsTicket}>＋ Save as ticket</button>
+              )}
+            </span>
           </div>
         )}
         {ticketInfo && (
-          <aside className="inspector card">
+          <aside className="inspector card" ref={inspectorRef} tabIndex={-1} aria-label="Ticket detail">
             <div className="tp-head">
               <h2>Ticket detail</h2>
               <div className="tp-actions">
@@ -707,6 +853,13 @@ export default function App() {
                 {ticketInfo.liveCount > 0 ? `${ticketInfo.liveCount} conflict` : "clear"}
               </span>
             </div>
+            <p className="tp-note muted">
+              Recorded = intake snapshot; Live = recomputed at the current radius. They differ by design.
+            </p>
+            <div className="tp-export">
+              <button className="mini" onClick={exportConflictGeoJson} title="Export buffer + conflicts as GeoJSON (WGS84)">⤓ GeoJSON</button>
+              <button className="mini" onClick={exportConflictCsv} title="Export conflicting facilities as CSV">⤓ CSV</button>
+            </div>
             {ticketInfo.facilities.length > 0 && (
               <div className="tp-facs">
                 <h3>Conflicting facilities <span className="muted">· click to inspect</span></h3>
@@ -741,7 +894,7 @@ export default function App() {
             </div>
           </div>
         )}
-      </div>
+      </main>
 
       <section className={`dock${ticketsOpen ? " open" : ""}`}>
         <div className="dock-head">
@@ -757,17 +910,19 @@ export default function App() {
             <div className="dock-filters">
               <input
                 className="ti"
+                name="ticket-search"
+                aria-label="Search tickets by id or source"
                 placeholder="Search id / source…"
                 value={tq}
                 onChange={(e) => setTq(e.target.value)}
               />
-              <select value={fSource} onChange={(e) => setFSource(e.target.value)}>
+              <select name="source-filter" aria-label="Filter by source" value={fSource} onChange={(e) => setFSource(e.target.value)}>
                 <option value="">all sources</option>
                 {sourceOptions.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
-              <select value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+              <select name="status-filter" aria-label="Filter by status" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
                 <option value="">all statuses</option>
                 {statusFilterOptions.map((s) => (
                   <option key={s} value={s}>{s}</option>
@@ -775,6 +930,9 @@ export default function App() {
               </select>
               <button className={`btn ${mode === "addTicket" ? "active" : ""}`} onClick={startAddTicket}>
                 ＋ New ticket
+              </button>
+              <button className="btn" onClick={exportTicketsCsv} title="Export the visible tickets as CSV">
+                ⤓ Export CSV
               </button>
               {mode === "addTicket" && !editing && (
                 <span className="muted">Click the map to place the ticket.</span>
@@ -788,6 +946,11 @@ export default function App() {
               <div key={t.ticket_id} className="tk-card">
                 <button
                   className="tk-main"
+                  aria-label={`Ticket ${t.ticket_id}, source ${t.source || "none"}, ${
+                    t.conflict_count > 0
+                      ? `${t.conflict_count} potential conflict${t.conflict_count === 1 ? "" : "s"}`
+                      : "no conflict"
+                  }`}
                   onClick={() => {
                     ctrl.current?.map.flyTo({ center: [t.lon, t.lat], zoom: 14 });
                     void handleTicketSelect(t, t.lon, t.lat);
@@ -841,7 +1004,7 @@ function Info({ title }: { title: string }) {
   );
 }
 
-function LegendItem({ c, t, kind }: { c: string; t: string; kind: "point" | "line" | "polygon" }) {
+function LegendItem({ c, t, kind }: { c: string; t: string; kind: "point" | "line" | "polygon" | "tri" }) {
   return (
     <div className="item">
       <span className={`glyph glyph-${kind}`} style={{ "--c": c } as CSSProperties} />
