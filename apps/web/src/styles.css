@@ -330,6 +330,10 @@ a { color: var(--accent); }
   .rail-toggle { width: 44px; height: 44px; }
   .btn-inline { padding: 9px 14px; }
   .maplibregl-ctrl button { width: 44px; height: 44px; }
+  /* bottom dock: expander, filter controls, action buttons, and ticket rows all ≥44px */
+  .dock-title { min-height: 44px; }
+  .dock-filters .ti, .dock-filters select, .dock-filters .btn { height: 44px; }
+  .tk-main { min-height: 44px; }
 }
 
 /* narrow phones: drop the trailing word so the title reads "GIS Conflict" (no ellipsis) */
