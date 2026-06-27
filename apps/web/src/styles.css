@@ -331,6 +331,11 @@ a { color: var(--accent); }
   .maplibregl-ctrl button { width: 40px; height: 40px; }
 }
 
+/* narrow phones: drop the trailing word so the title reads "GIS Conflict" (no ellipsis) */
+@media (max-width: 400px) {
+  .h1-rest { display: none; }
+}
+
 /* very narrow phones: shrink chips so all four stay readable, not clipped */
 @media (max-width: 390px) {
   .topbar { gap: 8px; padding: 0 8px; }

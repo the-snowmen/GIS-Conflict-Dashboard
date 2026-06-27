@@ -601,7 +601,7 @@ export default function App() {
         <div className="brand">
           <span className="brand-mark" aria-hidden>◈</span>
           <div className="brand-text">
-            <h1>GIS Conflict Dashboard</h1>
+            <h1>GIS Conflict<span className="h1-rest"> Dashboard</span></h1>
             <p className="brand-sub">
               Find work tickets that conflict with transmission lines
               <Info title="Runs entirely in your browser — no backend. Spatial SQL via DuckDB-WASM; geodesic buffering, H3 density, and KMZ parsing via a Rust/WASM geo engine." />

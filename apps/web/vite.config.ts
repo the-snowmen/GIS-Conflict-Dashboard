@@ -11,5 +11,21 @@ export default defineConfig(({ mode }) => ({
   // DuckDB-WASM ships its own workers/wasm; don't let Vite pre-bundle it.
   optimizeDeps: { exclude: ["@duckdb/duckdb-wasm", "geokit"] },
   worker: { format: "es" },
-  build: { target: "esnext" },
+  build: {
+    target: "esnext",
+    // maplibre-gl alone is ~800 kB minified; keep a sane ceiling above it.
+    chunkSizeWarningLimit: 1100,
+    rollupOptions: {
+      output: {
+        // Split the big, rarely-changing vendors into their own cacheable chunks so
+        // the browser fetches them in parallel and keeps them across app deploys.
+        // (terra-draw is dynamically imported in map.ts, so it auto-splits.)
+        manualChunks: {
+          maplibre: ["maplibre-gl"],
+          duckdb: ["@duckdb/duckdb-wasm"],
+          react: ["react", "react-dom"],
+        },
+      },
+    },
+  },
 }));

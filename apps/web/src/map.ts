@@ -9,8 +9,9 @@ import maplibregl, {
   Popup,
   StyleSpecification,
 } from "maplibre-gl";
-import { TerraDraw, TerraDrawPolygonMode } from "terra-draw";
-import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
+// terra-draw is only needed for "Draw AOI" — loaded on demand (see startPolygonDraw)
+// so it stays out of the initial bundle. Type-only import here (erased at build).
+import type { TerraDraw } from "terra-draw";
 import type { Feature, FeatureCollection, Geometry, Position } from "geojson";
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -393,8 +394,13 @@ export class MapController {
     this.inspectPopup?.remove();
   }
 
-  startPolygonDraw(onFinish: (geom: Geometry) => void) {
+  async startPolygonDraw(onFinish: (geom: Geometry) => void) {
     if (!this.draw) {
+      const [{ TerraDraw, TerraDrawPolygonMode }, { TerraDrawMapLibreGLAdapter }] = await Promise.all([
+        import("terra-draw"),
+        import("terra-draw-maplibre-gl-adapter"),
+      ]);
+      if (this.destroyed) return;
       this.draw = new TerraDraw({
         adapter: new TerraDrawMapLibreGLAdapter({ map: this.map }),
         modes: [new TerraDrawPolygonMode()],
