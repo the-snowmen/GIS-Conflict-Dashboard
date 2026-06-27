@@ -325,11 +325,11 @@ a { color: var(--accent); }
 
 /* --- touch devices: enlarge tap targets to ~44px (desktop mouse stays compact) --- */
 @media (pointer: coarse) {
-  .mini { min-height: 40px; min-width: 40px; padding: 6px 10px; font-size: 14px; }
-  .tp-close, .welcome-x { min-height: 40px; min-width: 40px; }
-  .rail-toggle { width: 40px; height: 40px; }
+  .mini { min-height: 44px; min-width: 44px; padding: 6px 10px; font-size: 14px; }
+  .tp-close, .welcome-x { min-height: 44px; min-width: 44px; }
+  .rail-toggle { width: 44px; height: 44px; }
   .btn-inline { padding: 9px 14px; }
-  .maplibregl-ctrl button { width: 40px; height: 40px; }
+  .maplibregl-ctrl button { width: 44px; height: 44px; }
 }
 
 /* narrow phones: drop the trailing word so the title reads "GIS Conflict" (no ellipsis) */

@@ -114,6 +114,9 @@ export default function App() {
   const lastResultRef = useRef<{ geom: Geometry; facilities: FeatureCollection } | null>(null);
   const kmzInputRef = useRef<HTMLInputElement>(null);
   const inspectorRef = useRef<HTMLElement>(null);
+  // The control that opened the ticket detail (a ticket card), so closing the
+  // panel can return focus there instead of dropping it to <body>.
+  const lastTriggerRef = useRef<HTMLElement | null>(null);
 
   // --- boot: map + data ----------------------------------------------------
   useEffect(() => {
@@ -221,6 +224,7 @@ export default function App() {
       const props = (feature.properties ?? {}) as Record<string, unknown>;
       if (layerId === "tickets-circle") {
         c.hideInspectPopup();
+        lastTriggerRef.current = null; // opened from the map, not a ticket card — no focus to return
         void handleTicketSelect(
           {
             ticket_id: String(props.ticket_id ?? ""),
@@ -261,7 +265,7 @@ export default function App() {
     c.enableBufferClick((lng, lat) => {
       lastPointRef.current = { lng, lat, ticket: null };
       const geom = bufferPoint(lng, lat, radiusRef.current);
-      void runConflict(geom, [lng, lat], `${radiusRef.current} m geodesic buffer (geokit)`);
+      void runConflict(geom, [lng, lat], `${radiusRef.current} m buffer`);
     });
   }, [runConflict, endTicketEdit]);
 
@@ -277,7 +281,7 @@ export default function App() {
     c.startPolygonDraw((geom) => {
       lastPointRef.current = null;
       setMode("idle");
-      void runConflict(geom, polygonCentroid(geom), "drawn AOI polygon");
+      void runConflict(geom, polygonCentroid(geom), "drawn area");
     });
   }, [runConflict, endTicketEdit]);
 
@@ -296,6 +300,10 @@ export default function App() {
     setConflict(null);
     setTicketInfo(null);
     setMode("idle");
+    // Return focus to the ticket card that opened the panel (keyboard/SR users).
+    const trigger = lastTriggerRef.current;
+    lastTriggerRef.current = null;
+    if (trigger) requestAnimationFrame(() => trigger.focus());
   }, [endTicketEdit]);
 
   // Live buffer: moving the radius slider re-runs the conflict for the last point.
@@ -307,7 +315,7 @@ export default function App() {
         void handleTicketSelect(lp.ticket, lp.lng, lp.lat, false);
       } else {
         const geom = bufferPoint(lp.lng, lp.lat, radiusRef.current);
-        void runConflict(geom, [lp.lng, lp.lat], `${radiusRef.current} m geodesic buffer (geokit)`, false);
+        void runConflict(geom, [lp.lng, lp.lat], `${radiusRef.current} m buffer`, false);
       }
     }, 120);
     return () => clearTimeout(id);
@@ -522,7 +530,7 @@ export default function App() {
       lastPointRef.current = { lng, lat, ticket: null };
       c.map.flyTo({ center: [lng, lat], zoom: Math.max(c.map.getZoom(), 13), duration: 600 });
       const geom = bufferPoint(lng, lat, radiusRef.current);
-      void runConflict(geom, [lng, lat], `${radiusRef.current} m geodesic buffer (geokit)`);
+      void runConflict(geom, [lng, lat], `${radiusRef.current} m buffer`);
     },
     [runConflict],
   );
@@ -594,7 +602,7 @@ export default function App() {
             <h1>GIS Conflict<span className="h1-rest"> Dashboard</span></h1>
             <p className="brand-sub">
               Find work tickets that conflict with transmission lines
-              <Info title="Runs entirely in your browser — no backend. Spatial SQL via DuckDB-WASM; geodesic buffering, H3 density, and KMZ parsing via a Rust/WASM geo engine." />
+              <Info title="Runs entirely in your browser — no server, and your data never leaves your machine." />
               {label ? ` · ${label}` : ""}
             </p>
           </div>
@@ -614,17 +622,28 @@ export default function App() {
         <section className="card">
           <h2>Conflict analysis</h2>
           <div className="row">
-            <button className={`btn ${mode === "buffer" ? "active" : ""}`} onClick={setBufferMode}>
+            <button
+              className={`btn ${mode === "buffer" ? "active" : ""}`}
+              onClick={setBufferMode}
+              aria-pressed={mode === "buffer"}
+              title="Circle a single spot and see what infrastructure it overlaps"
+            >
               ◎ Buffer point
             </button>
             <button
               className={`btn ${mode === "draw" ? "active" : ""}`}
               onClick={setDrawMode}
-              title="Draw an Area of Interest (AOI) polygon"
+              aria-pressed={mode === "draw"}
+              title="Outline an area on the map and see what it overlaps"
             >
               ✐ Draw AOI
             </button>
           </div>
+          {mode === "idle" && (
+            <p className="muted" style={{ margin: "8px 0 0" }}>
+              Buffer point = circle one spot · Draw AOI = outline an area — either way, see what it overlaps.
+            </p>
+          )}
           <label className="muted" htmlFor="radius" style={{ display: "block", margin: "10px 0 4px" }}>
             Buffer radius: <strong>{radius} m</strong>
           </label>
@@ -688,8 +707,8 @@ export default function App() {
 
         <section className="card">
           <h2>Layers</h2>
-          <button className={`btn ${hexOn ? "active" : ""}`} onClick={toggleHex}>
-            ⬡ H3 ticket density {hexOn ? "(on)" : "(off)"}
+          <button className={`btn ${hexOn ? "active" : ""}`} onClick={toggleHex} aria-pressed={hexOn} title="Shows where tickets cluster (denser = more tickets)">
+            ⬡ Density heatmap {hexOn ? "(on)" : "(off)"}
           </button>
           <button className="btn" style={{ marginTop: 8 }} onClick={() => kmzInputRef.current?.click()}>
             ⤓ Import KMZ / KML
@@ -925,7 +944,8 @@ export default function App() {
                       ? `${t.conflict_count} potential conflict${t.conflict_count === 1 ? "" : "s"}`
                       : "no conflict"
                   }`}
-                  onClick={() => {
+                  onClick={(e) => {
+                    lastTriggerRef.current = e.currentTarget;
                     ctrl.current?.map.flyTo({ center: [t.lon, t.lat], zoom: 14 });
                     void handleTicketSelect(t, t.lon, t.lat);
                   }}
