@@ -48,7 +48,7 @@ body { background: var(--bg); color: var(--text); }
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
-.topbar h1 { font-size: 15px; margin: 0; white-space: nowrap; }
+.topbar h1 { font-size: 15px; margin: 0; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rail-toggle {
   appearance: none; background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
   width: 34px; height: 34px; border-radius: 8px; cursor: pointer; font-size: 15px;
@@ -82,6 +82,8 @@ body { background: var(--bg); color: var(--text); }
   gap: 12px;
 }
 .app.rail-collapsed .rail { display: none; }
+/* Dim backdrop behind the mobile drawer (tap to dismiss). Desktop: never shown. */
+.rail-backdrop { display: none; }
 .rail h1 { font-size: 17px; margin: 0; }
 .rail h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 8px; }
 
@@ -291,20 +293,42 @@ a { color: var(--accent); }
 
 /* --- responsive: rail becomes an off-canvas drawer; inspector a bottom sheet */
 @media (max-width: 900px) {
-  .app { grid-template-columns: 1fr; }
+  /* minmax(0,1fr) (not 1fr) so the single column can't grow past the viewport on a
+     nowrap title + chips — keeps the header from blowing out the page width.
+     --dock-h shrinks so the map stays usable when the dock is open on short phones. */
+  .app { grid-template-columns: minmax(0, 1fr); --dock-h: min(240px, 42vh); }
   .map-wrap { grid-column: 1; }
   .dock { grid-column: 1; }
   .rail {
     position: fixed; top: var(--topbar-h); bottom: 0; left: 0;
     width: min(86vw, 320px); z-index: 30; box-shadow: 0 0 30px rgba(0,0,0,0.5);
   }
-  .chips { gap: 6px; }
+  .rail-backdrop {
+    display: block; position: fixed; inset: var(--topbar-h) 0 0 0;
+    background: rgba(0,0,0,0.45); z-index: 29;
+  }
+  /* chips never shrink — all four stay; the title (ellipsis) yields the width instead */
+  .chips { gap: 6px; flex-shrink: 0; }
   .chips .chip-l { display: none; }
   .brand-sub { display: none; }
+  /* reclaim header width for the four stat chips */
+  .brand-mark { display: none; }
+  .topbar h1 { font-size: 14px; }
   .inspector {
     top: auto; bottom: 0; left: 0; right: 0; width: auto;
     max-height: 55%; border-radius: 12px 12px 0 0;
   }
+  /* the bottom sheet already shows the conflict counts — drop the redundant result bar it would cover */
+  .map-wrap.has-inspector .result { display: none; }
+}
+
+/* --- touch devices: enlarge tap targets to ~44px (desktop mouse stays compact) --- */
+@media (pointer: coarse) {
+  .mini { min-height: 40px; min-width: 40px; padding: 6px 10px; font-size: 14px; }
+  .tp-close, .welcome-x { min-height: 40px; min-width: 40px; }
+  .rail-toggle { width: 40px; height: 40px; }
+  .btn-inline { padding: 9px 14px; }
+  .maplibregl-ctrl button { width: 40px; height: 40px; }
 }
 
 /* very narrow phones: shrink chips so all four stay readable, not clipped */

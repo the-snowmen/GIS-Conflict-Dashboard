@@ -619,6 +619,7 @@ export default function App() {
         )}
       </header>
 
+      {railOpen && <div className="rail-backdrop" aria-hidden onClick={() => setRailOpen(false)} />}
       <aside className="rail">
         <section className="card">
           <h2>Conflict analysis</h2>
@@ -752,7 +753,7 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="map-wrap" id="main-map">
+      <main className={`map-wrap${ticketInfo ? " has-inspector" : ""}`} id="main-map">
         <div id="map" ref={mapEl} />
         {phase === "ready" && !conflict && !ticketInfo && !welcomeDismissed && (
           <div className="welcome">
