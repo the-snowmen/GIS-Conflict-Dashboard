@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import type { FeatureCollection, Geometry, Position } from "geojson";
 import type { LngLat, MapGeoJSONFeature } from "maplibre-gl";
 import { MapController, type InspectHandler } from "./map";
-import { conflictsToCsv, conflictsToGeoJson, downloadText, ticketsToCsv } from "./services/export";
+import { conflictsToGeoJson, conflictsToKmz, downloadBytes, downloadText, ticketsToKmz, KMZ_MIME } from "./services/export";
 import {
   allTicketsMerged,
   bufferPoint,
@@ -106,9 +106,6 @@ export default function App() {
   const [legendOpen, setLegendOpen] = useState(true);
   // Screen-reader announcement of the latest conflict result (aria-live region).
   const [liveMsg, setLiveMsg] = useState("");
-  // Keyboard/no-mouse path to drop a buffer: type a coordinate.
-  const [coordLat, setCoordLat] = useState("");
-  const [coordLng, setCoordLng] = useState("");
   // First-run welcome callout (dismissed flag persisted in localStorage).
   const [welcomeDismissed, setWelcomeDismissed] = useState(
     () => typeof window !== "undefined" && window.localStorage.getItem("gcd.welcome.dismissed") === "1",
@@ -530,13 +527,6 @@ export default function App() {
     [runConflict],
   );
 
-  const submitCoord = useCallback(() => {
-    const lat = Number(coordLat);
-    const lng = Number(coordLng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
-    dropBufferAt(lng, lat);
-  }, [coordLat, coordLng, dropBufferAt]);
-
   // While in buffer mode, Enter (outside a form field) drops a buffer at the map center.
   useEffect(() => {
     if (mode !== "buffer") return;
@@ -576,13 +566,13 @@ export default function App() {
     if (!r) return;
     downloadText("conflicts.geojson", "application/geo+json", JSON.stringify(conflictsToGeoJson(r.geom, r.facilities), null, 2));
   }, []);
-  const exportConflictCsv = useCallback(() => {
+  const exportConflictKmz = useCallback(() => {
     const r = lastResultRef.current;
     if (!r) return;
-    downloadText("conflicts.csv", "text/csv", conflictsToCsv(r.facilities));
+    downloadBytes("conflicts.kmz", KMZ_MIME, conflictsToKmz(r.geom, r.facilities));
   }, []);
-  const exportTicketsCsv = useCallback(() => {
-    downloadText("tickets.csv", "text/csv", ticketsToCsv(filteredTickets));
+  const exportTicketsKmz = useCallback(() => {
+    downloadBytes("tickets.kmz", KMZ_MIME, ticketsToKmz(filteredTickets));
   }, [filteredTickets]);
 
   return (
@@ -643,23 +633,6 @@ export default function App() {
             type="range" min={25} max={500} step={25} value={radius}
             onChange={(e) => setRadius(Number(e.target.value))} style={{ width: "100%" }}
           />
-          {/* Non-mouse path: type a coordinate to drop the buffer (also a CRS readout). */}
-          <div className="coord-entry">
-            <input
-              type="number" inputMode="decimal" step="any" placeholder="lat" name="lat"
-              aria-label="Latitude" value={coordLat}
-              onChange={(e) => setCoordLat(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submitCoord()}
-            />
-            <input
-              type="number" inputMode="decimal" step="any" placeholder="lng" name="lng"
-              aria-label="Longitude" value={coordLng}
-              onChange={(e) => setCoordLng(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submitCoord()}
-            />
-            <button className="btn" onClick={submitCoord}>Drop buffer</button>
-          </div>
-          <p className="muted coord-note">lat, lng · WGS84 / EPSG:4326</p>
           <div style={{ marginTop: 8 }}>
             <button className="btn danger" onClick={clearAoi}>Clear AOI</button>
           </div>
@@ -783,7 +756,7 @@ export default function App() {
             <span className="muted">· {conflict.jurisdiction ?? "outside the coverage area"} · {conflict.via}</span>
             <span className="result-actions">
               <button className="btn-inline ghost" onClick={exportConflictGeoJson} title="Download buffer + conflicting facilities as GeoJSON (WGS84)">⤓ GeoJSON</button>
-              <button className="btn-inline ghost" onClick={exportConflictCsv} title="Download conflicting facilities as CSV">⤓ CSV</button>
+              <button className="btn-inline ghost" onClick={exportConflictKmz} title="Download buffer + conflicting facilities as KMZ (Google Earth)">⤓ KMZ</button>
               {lastPointRef.current && !lastPointRef.current.ticket && !editing && (
                 <button className="btn-inline" onClick={saveBufferAsTicket}>＋ Save as ticket</button>
               )}
@@ -859,7 +832,7 @@ export default function App() {
             </p>
             <div className="tp-export">
               <button className="mini" onClick={exportConflictGeoJson} title="Export buffer + conflicts as GeoJSON (WGS84)">⤓ GeoJSON</button>
-              <button className="mini" onClick={exportConflictCsv} title="Export conflicting facilities as CSV">⤓ CSV</button>
+              <button className="mini" onClick={exportConflictKmz} title="Export buffer + conflicts as KMZ (Google Earth)">⤓ KMZ</button>
             </div>
             {ticketInfo.facilities.length > 0 && (
               <div className="tp-facs">
@@ -932,8 +905,8 @@ export default function App() {
               <button className={`btn ${mode === "addTicket" ? "active" : ""}`} onClick={startAddTicket}>
                 ＋ New ticket
               </button>
-              <button className="btn" onClick={exportTicketsCsv} title="Export the visible tickets as CSV">
-                ⤓ Export CSV
+              <button className="btn" onClick={exportTicketsKmz} title="Export the visible tickets as KMZ (Google Earth)">
+                ⤓ Export KMZ
               </button>
               {mode === "addTicket" && !editing && (
                 <span className="muted">Click the map to place the ticket.</span>

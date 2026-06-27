@@ -187,12 +187,6 @@ body { background: var(--bg); color: var(--text); }
 .btn-inline.ghost:hover { border-color: var(--accent); filter: none; }
 .result-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
-/* coordinate entry (no-mouse path to drop a buffer) */
-.coord-entry { display: flex; gap: 6px; margin-top: 10px; }
-.coord-entry input { flex: 1 1 0; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; font-size: 12px; }
-.coord-entry .btn { flex: 0 0 auto; width: auto; padding: 0 10px; font-size: 12px; }
-.coord-note { margin: 4px 0 0; }
-
 /* first-run welcome callout */
 .welcome {
   position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
@@ -295,8 +289,8 @@ a { color: var(--accent); }
 @media (max-width: 900px) {
   /* minmax(0,1fr) (not 1fr) so the single column can't grow past the viewport on a
      nowrap title + chips — keeps the header from blowing out the page width.
-     --dock-h shrinks so the map stays usable when the dock is open on short phones. */
-  .app { grid-template-columns: minmax(0, 1fr); --dock-h: min(240px, 42vh); }
+     A taller open dock so the ticket list shows several cards, not just one. */
+  .app { grid-template-columns: minmax(0, 1fr); --dock-h: min(62vh, 540px); }
   .map-wrap { grid-column: 1; }
   .dock { grid-column: 1; }
   .rail {
@@ -307,9 +301,9 @@ a { color: var(--accent); }
     display: block; position: fixed; inset: var(--topbar-h) 0 0 0;
     background: rgba(0,0,0,0.45); z-index: 29;
   }
-  /* chips never shrink — all four stay; the title (ellipsis) yields the width instead */
-  .chips { gap: 6px; flex-shrink: 0; }
-  .chips .chip-l { display: none; }
+  /* chips never shrink — all four stay (with captions); the title (ellipsis) yields width */
+  .chips { gap: 5px; flex-shrink: 0; }
+  .chips .chip-l { font-size: 8px; letter-spacing: 0.02em; }
   .brand-sub { display: none; }
   /* reclaim header width for the four stat chips */
   .brand-mark { display: none; }
@@ -320,6 +314,13 @@ a { color: var(--accent); }
   }
   /* the bottom sheet already shows the conflict counts — drop the redundant result bar it would cover */
   .map-wrap.has-inspector .result { display: none; }
+  /* dock: title above the filters; filters become a 2-up grid */
+  .dock-head { flex-direction: column; align-items: stretch; gap: 8px; }
+  .dock-title { align-self: flex-start; }
+  .dock-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .dock-filters .ti { grid-column: 1 / -1; flex: none; min-width: 0; }
+  .dock-filters .btn { width: auto; }
+  .dock-filters > .muted { grid-column: 1 / -1; }
 }
 
 /* --- touch devices: enlarge tap targets to ~44px (desktop mouse stays compact) --- */
