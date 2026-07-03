@@ -1,7 +1,7 @@
 //! H3 indexing, hex-density aggregation, and polygon fill — pure-Rust via `h3o`.
 //!
-//! A single H3 toolkit covering what the demo needs, replacing both `h3-js` on the client
-//! and server-side H3 aggregation:
+//! A single H3 toolkit covering what the demo needs — client-side indexing plus hex-density
+//! aggregation, so no `h3-js` dependency is required:
 //!   * multi-resolution point indexing (res 5-8; res 6 is the heatmap default),
 //!   * `cell -> boundary` for rendering,
 //!   * `points -> per-hex density` for the heatmap,

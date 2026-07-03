@@ -1,17 +1,17 @@
-//! Geodesic buffering in **meters**, aiming for parity with PostGIS
+//! Geodesic buffering in **meters**, modeled on the common PostGIS pattern
 //! `ST_Buffer(geom::geography, meters)`.
 //!
 //! Strategy (see plan): there is no single pure-Rust "geography buffer", so we compose
 //! mature crates:
 //!   * **Points / MultiPoints** -> exact geodesic circles via `geographiclib-rs` (the same
-//!     ellipsoidal model PostGIS `::geography` uses), sampled into an N-gon.
+//!     WGS84 ellipsoidal model PostGIS `::geography` uses), sampled into an N-gon.
 //!   * **Lines / Polygons** -> project WGS84 -> a local UTM zone (pure-Rust `proj4rs`),
 //!     run a planar buffer (`geo`'s i_overlay-backed `Buffer`), then project back. UTM is
 //!     conformal, so shapes/offsets are preserved to within a few cm over a metro extent.
 //!
-//! Targets parity with the common PostGIS pattern `ST_Buffer(geom::geography, meters)`:
-//! GeoJSON geometry + distance in meters in, a buffered polygon in EPSG:4326 out; PostGIS's
-//! default is 8 segments per quadrant.
+//! In/out contract: GeoJSON geometry + distance in meters in, a buffered polygon in EPSG:4326
+//! out; follows PostGIS's default of 8 segments per quadrant. Output is not bit-for-bit
+//! identical to PostGIS — a geography buffer and a geographiclib circle use different methods.
 
 use crate::core::geojson_io::{geometry_to_geojson, GeoError};
 use geo::algorithm::buffer::Buffer;

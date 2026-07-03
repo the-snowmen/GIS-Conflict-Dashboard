@@ -1,4 +1,4 @@
-//! Buffer unit + golden parity tests (run natively).
+//! Buffer unit tests (run natively).
 
 use geo::algorithm::geodesic_area::GeodesicArea;
 use geokit::core::buffer::{buffer_geojson, buffer_meters};
@@ -7,8 +7,8 @@ use geokit::core::geometry_from_geojson;
 const AUSTIN: (f64, f64) = (-97.7431, 30.2672); // (lng, lat), downtown Austin
 
 /// A geodesic point buffer should approximate a circle: area ~= pi * r^2 (an N-gon slightly
-/// under-approximates). This is the golden parity check against PostGIS `::geography` point
-/// buffering, which produces the same ellipsoidal circle.
+/// under-approximates). Validates the geodesic circle against the analytic area (pi*r^2), not
+/// against PostGIS output.
 #[test]
 fn point_buffer_area_matches_circle() {
     let pt = format!(

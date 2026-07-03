@@ -26,18 +26,18 @@ hosts on GitHub Pages.
 - **H3 density heatmap** — multi-resolution hex binning of ticket density.
 - **KMZ / KML import** — drop a KMZ/KML file and it's parsed in-browser to GeoJSON and overlaid.
 
-The split: tabular + spatial **queries** run in DuckDB-WASM, **precision geometry** in a custom
-Rust→WebAssembly engine, and rendering in MapLibre GL.
+The split: tabular + spatial **queries** run in DuckDB-WASM, **precision geometry** in a
+Rust→WebAssembly module (`geokit`), and rendering in MapLibre GL.
 
 ## Architecture
 
-Two engines run in the browser, splitting query work from precision geometry the way a PostGIS
-backend and a thin client would:
+DuckDB-WASM and a Rust→WebAssembly geometry module run in the browser, splitting query work from
+precision geometry the way a PostGIS backend and a thin client would:
 
-| Concern | Engine |
+| Concern | Component |
 |---|---|
 | Tabular + spatial **queries** — ticket/facility search, stats, AOI↔facility conflict join (`ST_Intersects`), jurisdiction point-in-polygon (`ST_Within`), envelopes | **DuckDB-WASM** + Spatial, querying the GeoParquet assets over HTTP range reads |
-| **Precision geometry** — geodesic buffering in meters (parity with PostGIS `::geography`), H3 multi-resolution indexing + hex density, KMZ/KML parsing | **`geokit`**, a custom Rust → WebAssembly engine (this repo) |
+| **Precision geometry** — geodesic meter buffering (ellipsoidal circles via `geographiclib-rs`; lines/polygons via a UTM planar buffer), H3 multi-resolution indexing + hex density, KMZ/KML parsing | **`geokit`**, a Rust → WebAssembly module (this repo) |
 
 Conflict gating is a generic, **config-driven** owner/status rule
 ([`data/demo_config.json`](data/demo_config.json)) applied as a SQL `WHERE`.
@@ -45,7 +45,7 @@ Conflict gating is a generic, **config-driven** owner/status rule
 ## Repository layout
 
 ```
-packages/geo-engine/     # `geokit` — Rust→WASM geo engine (buffer / H3 / KMZ)
+packages/geo-engine/     # `geokit` — Rust→WASM geometry module (buffer / H3 / KMZ)
   src/core/              #   pure-Rust logic (native unit + golden tests, criterion benches)
   src/wasm.rs            #   wasm-bindgen shims (compiled only for wasm32)
 scripts/build_demo_db.py # downloads public data + fabricates tickets → GeoParquet
@@ -54,13 +54,13 @@ apps/web/public/data/    # committed GeoParquet assets (facility/ticket/aoi/coun
 data/demo_config.json    # generic conflict rule (owner/status gating)
 ```
 
-## The `geokit` geo engine
+## The `geokit` module
 
 Built on mature, pure-Rust crates (no C deps → clean wasm build): `geo` (planar buffer),
 `proj4rs` (WGS84↔UTM), `geographiclib-rs` (geodesic circles), `h3o` (H3), `zip`+`kml`+`geojson` (KMZ).
 
 ```bash
-# native tests (units + golden parity vs PostGIS-geography / the H3 reference)
+# native tests: geodesic buffer area/shape sanity checks + H3 indices vs the reference cell
 cargo test -p geokit
 # criterion benchmarks
 cargo bench -p geokit
@@ -93,7 +93,7 @@ extension CDNs at runtime — the only network dependency; everything else is st
 
 ## Status
 
-- ✅ `geokit` Rust→WASM engine (buffer, H3, KMZ) with tests + benches + wasm build
+- ✅ `geokit` Rust→WASM module (buffer, H3, KMZ) with tests + benches + wasm build
 - ✅ Public-data + synthetic-ticket build pipeline → GeoParquet
 - ✅ DuckDB-WASM query layer + React/MapLibre dashboard (conflict analysis, ticket CRUD, H3, KMZ)
 - ✅ Deployed to GitHub Pages → **[live demo](https://the-snowmen.github.io/GIS-Conflict-Dashboard/)**

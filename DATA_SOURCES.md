@@ -44,7 +44,7 @@ python scripts/build_demo_db.py --metro austin
 ## Libraries / specifications
 
 - **H3** geospatial index (Uber) — indices computed with the pure-Rust [`h3o`](https://crates.io/crates/h3o)
-  crate (in the geo engine) and the `h3` Python binding (at build time); both share H3's index space.
+  crate (in the `geokit` module) and the `h3` Python binding (at build time); both share H3's index space.
 - Geometry/geodesy via [`geo`](https://crates.io/crates/geo), [`proj4rs`](https://crates.io/crates/proj4rs),
   [`geographiclib-rs`](https://crates.io/crates/geographiclib-rs); query engine
   [DuckDB](https://duckdb.org) + its Spatial extension.
