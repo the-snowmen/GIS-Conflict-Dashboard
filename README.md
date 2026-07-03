@@ -15,19 +15,45 @@ hosts on GitHub Pages.
 
 ## What it does
 
-- **Conflict analysis** — drop a work point (geodesic meter buffer) or draw an AOI polygon; see the
-  intersecting facilities (`ST_Intersects`) and containing county (`ST_Within`) computed live, with an
-  adjustable buffer radius.
-- **Ticket records** — a searchable, filterable dock of work tickets; click one to fly to it and
-  inspect its conflicts; create / edit / delete tickets, with each ticket's status auto-derived from
-  its live conflict count.
+- **Conflict analysis** — drop a work point (geodesic meter buffer) or draw an AOI polygon; the
+  intersecting facilities (`ST_Intersects`) and containing county (`ST_Within`) are computed live, with
+  an adjustable buffer radius.
+- **Interactive conflict rule** — an editable owner/status rule (with one-click presets) sets what
+  counts as a conflict and recolors the network live as you change it. Every flagged ticket gets a
+  **why-dossier**: the conflicting facilities itemized and ranked nearest-first, each row clickable to
+  inspect, alongside intake-vs-live conflict counts.
+- **Ticket records** — a searchable, filterable dock of work tickets (source, status, and
+  minimum-conflicts filters); click one to fly to it and inspect; create / edit / delete tickets, with
+  status auto-derived from the live conflict count.
 - **Click-to-inspect** — click any facility, ticket, or hex to read its attributes; hovering a
   conflicting facility flashes it on the map, and the detail panel re-centers on demand.
-- **H3 density heatmap** — multi-resolution hex binning of ticket density.
-- **KMZ / KML import** — drop a KMZ/KML file and it's parsed in-browser to GeoJSON and overlaid.
+- **H3 layers** — a ticket-density heatmap plus a tunable **conflict-index** choropleth: a weighted,
+  normalized score per hex (ticket volume, conflict rate, mean severity, facility density) with hotspot
+  highlighting and click-to-drill-down into a cell's tickets.
+- **Import & export** — drop a KMZ/KML file to parse it in-browser and overlay it; export a conflict
+  set to **GeoJSON or KMZ**, each file embedding the exact rule assumptions used.
 
 The split: tabular + spatial **queries** run in DuckDB-WASM, **precision geometry** in a
 Rust→WebAssembly module (`geokit`), and rendering in MapLibre GL.
+
+## Screenshots
+
+**Live, in-browser recompute.** The geodesic buffer is computed client-side; changing its radius
+re-runs the facility intersection and updates the conflict count and the why-list on the fly:
+
+[![Conflict set updating live as the geodesic buffer radius changes](docs/demo.gif)](https://the-snowmen.github.io/GIS-Conflict-Dashboard/)
+
+Two H3 hex layers — a weighted conflict-index screening score and a raw ticket-density heatmap:
+
+| H3 conflict-index cells | H3 ticket-density heatmap |
+|---|---|
+| [![Weighted conflict-index choropleth with hotspot cells and drill-down](docs/cell-index.png)](https://the-snowmen.github.io/GIS-Conflict-Dashboard/) | [![Ticket-density heatmap over the Austin metro](docs/density.png)](https://the-snowmen.github.io/GIS-Conflict-Dashboard/) |
+| A tunable weighted score per hex — ticket volume, conflict rate, mean severity, facility density; hotspots outlined, click to drill into a cell's tickets. | Where work clusters, binned into H3 hexes. |
+
+Every flagged ticket carries a **why-dossier** — its conflicts itemized and ranked nearest-first, with
+intake-vs-live counts side by side:
+
+<p align="center"><img src="docs/why-dossier.png" alt="Why-dossier: conflicting facilities ranked nearest-first with intake-vs-live conflict counts" width="360"></p>
 
 ## Architecture
 
@@ -95,7 +121,8 @@ extension CDNs at runtime — the only network dependency; everything else is st
 
 - ✅ `geokit` Rust→WASM module (buffer, H3, KMZ) with tests + benches + wasm build
 - ✅ Public-data + synthetic-ticket build pipeline → GeoParquet
-- ✅ DuckDB-WASM query layer + React/MapLibre dashboard (conflict analysis, ticket CRUD, H3, KMZ)
+- ✅ DuckDB-WASM query layer + React/MapLibre dashboard — conflict analysis, interactive conflict rule
+  + why-dossier, ticket CRUD, H3 density + conflict-index, KMZ/KML import, GeoJSON/KMZ export
 - ✅ Deployed to GitHub Pages → **[live demo](https://the-snowmen.github.io/GIS-Conflict-Dashboard/)**
 
 ## License
