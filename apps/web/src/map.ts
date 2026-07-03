@@ -54,6 +54,7 @@ export type SourceId =
   | "facilities"
   | "tickets"
   | "hex"
+  | "cells"
   | "kmz"
   | "aoi"
   | "conflict"
@@ -72,6 +73,8 @@ const INTERACTIVE_LAYERS = [
   "kmz-fill",
   "facilities-line",
   "hex-fill",
+  // Lowest priority: a hex click drills only where no ticket/line was hit under the cursor.
+  "cells-fill",
 ];
 
 export class MapController {
@@ -125,7 +128,7 @@ export class MapController {
   /** Register empty sources + styled layers; data is pushed later via setData(). */
   initLayers() {
     const src = (id: SourceId) => this.map.addSource(id, { type: "geojson", data: EMPTY });
-    (["counties", "facilities", "tickets", "hex", "kmz", "aoi", "conflict", "conflict-highlight"] as SourceId[]).forEach(src);
+    (["counties", "facilities", "tickets", "hex", "cells", "kmz", "aoi", "conflict", "conflict-highlight"] as SourceId[]).forEach(src);
 
     this.map.addLayer({
       id: "counties-fill", type: "fill", source: "counties",
@@ -134,6 +137,31 @@ export class MapController {
     this.map.addLayer({
       id: "counties-line", type: "line", source: "counties",
       paint: { "line-color": "#5b9dff", "line-width": 1.2, "line-opacity": 0.5 },
+    });
+
+    // H3 conflict-index choropleth ("second altitude") — a PURPLE sequential ramp,
+    // a deliberately different color family from the blue→red density heatmap so the
+    // two never read as the same scale. Rendered low (under lines/points), hidden
+    // until the Cell-index altitude is selected. `score01` is the index min-maxed to
+    // [0,1]; `hotspot` flags where activity and conflict rate both run high.
+    this.map.addLayer({
+      id: "cells-fill", type: "fill", source: "cells", layout: { visibility: "none" },
+      paint: {
+        "fill-color": [
+          "interpolate", ["linear"], ["get", "score01"],
+          0, "#2a1a4a", 0.5, "#7b3fa0", 1, "#e668d8",
+        ],
+        "fill-opacity": 0.55,
+      },
+    });
+    this.map.addLayer({
+      id: "cells-line", type: "line", source: "cells", layout: { visibility: "none" },
+      paint: { "line-color": "#b779e0", "line-width": 0.6, "line-opacity": 0.5 },
+    });
+    this.map.addLayer({
+      id: "cells-hotspot", type: "line", source: "cells", layout: { visibility: "none" },
+      filter: ["==", ["get", "hotspot"], true],
+      paint: { "line-color": "#ffd166", "line-width": 2, "line-opacity": 0.95 },
     });
 
     this.map.addLayer({
@@ -274,6 +302,22 @@ export class MapController {
     if (this.map.getLayer(layerId)) {
       this.map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
     }
+  }
+
+  /** Show/hide the whole H3 conflict-index choropleth (fill + outline + hotspot). */
+  setCellsVisible(visible: boolean) {
+    for (const id of ["cells-fill", "cells-line", "cells-hotspot"]) this.setLayerVisible(id, visible);
+  }
+
+  /** Dim cells scoring below `threshold` (0..1 over score01) so the hot set stands out. */
+  setCellThreshold(threshold: number) {
+    if (this.destroyed || !this.map.getLayer("cells-fill")) return;
+    this.map.setPaintProperty("cells-fill", "fill-opacity", [
+      "case",
+      [">=", ["get", "score01"], threshold],
+      0.62,
+      0.12,
+    ]);
   }
 
   fitTo(fc: FeatureCollection, padding = 40, maxZoom?: number) {

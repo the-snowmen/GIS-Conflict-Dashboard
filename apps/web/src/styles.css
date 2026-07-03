@@ -301,6 +301,61 @@ a { color: var(--accent); }
 .chip-toggle.on { background: #20305a; color: var(--text); border-color: var(--accent); }
 .chip-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* --- H3 conflict-index second altitude ------------------------------------ */
+.altitude-seg { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.alt-btn {
+  appearance: none; flex: 1; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+  padding: 9px 8px; border: none; background: var(--panel-2); color: var(--muted);
+}
+.alt-btn + .alt-btn { border-left: 1px solid var(--line); }
+.alt-btn:hover { color: var(--text); }
+.alt-btn.active { background: #20305a; color: var(--text); }
+.alt-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.cell-honesty { font-size: 11px; line-height: 1.5; margin: 0 0 8px; }
+.cell-drill {
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  font-size: 12px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 7px; padding: 6px 8px; margin-bottom: 8px;
+}
+.cell-drill code { color: var(--accent); font-variant-numeric: tabular-nums; }
+.cell-drill button {
+  appearance: none; cursor: pointer; font: inherit; font-size: 11px;
+  background: none; border: 1px solid var(--line); border-radius: 6px; color: var(--text); padding: 3px 8px;
+}
+.cell-drill button:hover { border-color: var(--accent); }
+
+.cell-w { margin: 6px 0; }
+.cell-w label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.cell-w label b { color: var(--text); font-variant-numeric: tabular-nums; }
+.cell-w input[type="range"] { width: 100%; }
+
+.cell-legend { margin: 10px 0; }
+.cell-ramp { height: 8px; border-radius: 5px; background: linear-gradient(90deg, #2a1a4a, #7b3fa0, #e668d8); }
+.cell-ramp-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-top: 3px; }
+.cell-legend-note { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+.hot-swatch { display: inline-block; width: 10px; height: 10px; border: 2px solid #ffd166; border-radius: 2px; vertical-align: middle; margin-right: 3px; }
+
+.cell-table { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.cell-rank-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.cell-table-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.cell-sort { font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.cell-sort select { font: inherit; font-size: 11px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; }
+.cell-rank-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; }
+.cell-row {
+  appearance: none; width: 100%; text-align: left; cursor: pointer; color: inherit; font: inherit;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px;
+}
+.cell-row:hover, .cell-row:focus-visible { border-color: var(--accent); background: #20305a; outline: none; }
+.cell-row.active { border-color: var(--accent); background: #20305a; }
+.cell-row.hot { border-color: rgba(255, 209, 102, 0.55); }
+.cell-row-idx { font-weight: 650; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; }
+.hot-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; background: rgba(255,209,102,0.18); color: #ffd166; border-radius: 4px; padding: 1px 5px; }
+.cell-row-stats { display: flex; gap: 8px; font-size: 11px; color: var(--muted); }
+.cell-row-stats em { font-style: normal; opacity: 0.7; }
+.cell-table-empty { font-size: 12px; padding: 8px 0; }
+
 /* --- basemap attribution: a bare ⓘ that expands on hover/focus ------------- */
 /* Collapsed = just the ⓘ button (no container box). The dark, readable box and
    the (license-required) credit text appear only when expanded. */
@@ -372,6 +427,8 @@ a { color: var(--accent); }
   .chip-toggle { min-height: 44px; padding: 6px 12px; }
   .preset { min-height: 44px; padding: 6px 12px; }
   .info-btn { min-width: 28px; min-height: 28px; padding: 6px; }
+  .alt-btn { min-height: 44px; }
+  .cell-row { min-height: 44px; }
 }
 
 /* narrow phones: drop the trailing word so the title reads "GIS Conflict" (no ellipsis) */

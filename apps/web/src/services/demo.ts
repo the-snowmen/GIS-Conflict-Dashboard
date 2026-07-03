@@ -348,3 +348,185 @@ export function parseKmz(bytes: Uint8Array): FeatureCollection {
   const gk = getGeokit();
   return JSON.parse(gk.kmz_to_geojson(bytes)) as FeatureCollection;
 }
+
+// --- H3 conflict-index cell layer (the "second altitude") ------------------
+// A tunable multi-criteria index over H3 hexes. The per-cell aggregates are FACTS
+// (ticket volume, conflict rate, mean severity, facility density) computed once per
+// resolution; the weights + normalization + threshold are OPINIONS applied live in
+// the browser. CD's dataset is small, so the whole thing runs client-side on demand
+// — no baked cell files, no build step (mirrors the app's live-spatial-SQL ethos).
+
+// Per-cell facts (independent of the weights).
+export interface CellFacts {
+  cell_id: string;
+  geometry: Geometry; // hex boundary polygon (EPSG:4326)
+  centroid: [number, number]; // [lon, lat] — fly-to anchor
+  ticket_count: number;
+  conflict_ticket_count: number; // tickets with ≥1 conflict
+  conflict_rate: number; // conflict_ticket_count / ticket_count (0..1)
+  mean_severity: number; // avg conflict_count over the cell's tickets
+  facility_count: number; // facilities intersecting the hex (ST_Intersects)
+  ticket_ids: string[]; // membership, for drill-down
+}
+
+export interface CellWeights {
+  demand: number; // ticket volume
+  rate: number; // conflict rate
+  severity: number; // mean conflicts per ticket
+  infra: number; // facility density
+  norm: "z" | "minmax";
+}
+
+export const DEFAULT_CELL_WEIGHTS: CellWeights = {
+  demand: 0.3,
+  rate: 0.4,
+  severity: 0.2,
+  infra: 0.1,
+  norm: "z",
+};
+
+// A scored cell (facts + the live index). `score01` is the index min-maxed to [0,1]
+// for the choropleth ramp; `index` is the raw weighted score for the ranked table.
+export interface CellScore extends CellFacts {
+  index: number;
+  score01: number;
+  is_hotspot: boolean; // high ticket volume AND high conflict rate
+}
+
+// Average of a polygon's exterior ring — a good-enough hex centroid for fly-to.
+function ringCentroid(g: Geometry): [number, number] {
+  const ring = g.type === "Polygon" ? g.coordinates[0] : [];
+  if (!ring.length) return [0, 0];
+  let x = 0;
+  let y = 0;
+  for (const p of ring) {
+    x += p[0];
+    y += p[1];
+  }
+  return [x / ring.length, y / ring.length];
+}
+
+// Facilities intersecting each hex, via one DuckDB spatial join over a VALUES list
+// of the occupied hex polygons. Resilient: on any failure every cell gets 0 (the
+// infra axis simply contributes nothing), so the rest of the index still works.
+async function facilityCountsByCell(
+  cellIds: string[],
+  geom: Map<string, Geometry>,
+): Promise<Map<string, number>> {
+  if (!cellIds.length) return new Map();
+  try {
+    const values = cellIds
+      .map(
+        (id) =>
+          `(${sqlString(id)}, ST_GeomFromGeoJSON(${sqlString(JSON.stringify(geom.get(id)))}))`,
+      )
+      .join(",");
+    const rows = await q<{ cell_id: string; n: number }>(
+      `WITH cells(cell_id, g) AS (VALUES ${values})
+       SELECT c.cell_id AS cell_id, count(*) AS n
+       FROM cells c JOIN read_parquet('facility.parquet') f
+         ON ST_Intersects(c.g, ST_GeomFromWKB(f.geom))
+       GROUP BY c.cell_id`,
+    );
+    return new Map(rows.map((r) => [String(r.cell_id), Number(r.n)]));
+  } catch (e) {
+    console.warn("facility density unavailable (infra axis = 0):", e);
+    return new Map();
+  }
+}
+
+/** Aggregate the merged tickets into H3 cells at `res` → per-cell facts. */
+export async function computeCellFacts(res: number): Promise<CellFacts[]> {
+  const tickets = await allTicketsMerged();
+  const gk = getGeokit();
+  const bins = new Map<string, { ids: string[]; conflicts: number; sevSum: number }>();
+  for (const t of tickets) {
+    const h = gk.h3_index_point(t.lat, t.lon, res); // note: lat, lon order
+    let b = bins.get(h);
+    if (!b) {
+      b = { ids: [], conflicts: 0, sevSum: 0 };
+      bins.set(h, b);
+    }
+    b.ids.push(t.ticket_id);
+    if (t.conflict_count > 0) b.conflicts++;
+    b.sevSum += t.conflict_count;
+  }
+  const cellIds = [...bins.keys()];
+  const geom = new Map<string, Geometry>();
+  for (const id of cellIds) geom.set(id, JSON.parse(gk.h3_cell_boundary_geojson(id)) as Geometry);
+  const facCounts = await facilityCountsByCell(cellIds, geom);
+  return cellIds.map((id) => {
+    const b = bins.get(id)!;
+    const g = geom.get(id)!;
+    return {
+      cell_id: id,
+      geometry: g,
+      centroid: ringCentroid(g),
+      ticket_count: b.ids.length,
+      conflict_ticket_count: b.conflicts,
+      conflict_rate: b.ids.length ? b.conflicts / b.ids.length : 0,
+      mean_severity: b.ids.length ? b.sevSum / b.ids.length : 0,
+      facility_count: facCounts.get(id) ?? 0,
+      ticket_ids: b.ids,
+    };
+  });
+}
+
+/** Score the cell facts with the live weights → ranked CellScore[]. Pure + instant. */
+export function scoreCells(facts: CellFacts[], w: CellWeights): CellScore[] {
+  if (!facts.length) return [];
+  const cols = ["ticket_count", "conflict_rate", "mean_severity", "facility_count"] as const;
+  // A normalizer per column (z-score or min-max over the occupied-cell distribution).
+  const normOf: Record<string, (v: number) => number> = {};
+  for (const c of cols) {
+    const vals = facts.map((f) => f[c]);
+    if (w.norm === "minmax") {
+      const mn = Math.min(...vals);
+      const range = Math.max(...vals) - mn || 1;
+      normOf[c] = (v) => (v - mn) / range;
+    } else {
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length) || 1;
+      normOf[c] = (v) => (v - mean) / sd;
+    }
+  }
+  const scored = facts.map((f) => {
+    const nDemand = normOf.ticket_count(f.ticket_count);
+    const nRate = normOf.conflict_rate(f.conflict_rate);
+    const nSev = normOf.mean_severity(f.mean_severity);
+    const nInfra = normOf.facility_count(f.facility_count);
+    const index = w.demand * nDemand + w.rate * nRate + w.severity * nSev + w.infra * nInfra;
+    return { f, nDemand, nRate, index };
+  });
+  const idx = scored.map((s) => s.index);
+  const mn = Math.min(...idx);
+  const range = Math.max(...idx) - mn || 1;
+  return scored
+    .map((s) => ({
+      ...s.f,
+      index: s.index,
+      score01: (s.index - mn) / range,
+      // Hotspot = above the midpoint on BOTH activity and conflict rate (work meets risk).
+      is_hotspot: s.nDemand >= 0.5 && s.nRate >= 0.5,
+    }))
+    .sort((a, b) => b.index - a.index);
+}
+
+/** A scored-cell FeatureCollection for MapLibre (index props ride on each hex). */
+export function cellsToFC(scores: CellScore[]): FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: scores.map((s) => ({
+      type: "Feature",
+      geometry: s.geometry,
+      properties: {
+        cell_id: s.cell_id,
+        score01: s.score01,
+        index: s.index,
+        hotspot: s.is_hotspot,
+        ticket_count: s.ticket_count,
+        conflict_rate: s.conflict_rate,
+      },
+    })),
+  };
+}
