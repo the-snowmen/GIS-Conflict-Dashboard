@@ -30,6 +30,20 @@ export interface DemoConfig {
   ticketStatuses: string[];
 }
 
+// The conflict rule as a tunable "opinion": which facilities count as ours (owners)
+// and which statuses to exclude. Defaults come from demo_config.json; the UI can
+// override it live (the facilities themselves — the "facts" — never change).
+export interface ConflictRule {
+  selfOwners: string[];
+  excludedStatuses: string[];
+}
+
+// Distinct owner/status values in the facility table, to seed the rule controls.
+export interface FacilityFacets {
+  owners: string[];
+  statuses: string[];
+}
+
 let cfgPromise: Promise<DemoConfig> | null = null;
 export function config(): Promise<DemoConfig> {
   return (cfgPromise ??= fetch(`${import.meta.env.BASE_URL}data/demo_config.json`).then((r) =>
@@ -181,11 +195,20 @@ export interface ConflictResult {
   facilities: FeatureCollection;
 }
 
-/** Count "our" in-service facilities intersecting an AOI polygon (the config-driven rule). */
-export async function conflictForAoi(aoi: Geometry): Promise<ConflictResult> {
+const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
+
+/** Count "our" in-service facilities intersecting an AOI polygon. The rule (owner
+ *  set + excluded statuses) defaults to demo_config.json but can be overridden live. */
+export async function conflictForAoi(aoi: Geometry, rule?: ConflictRule): Promise<ConflictResult> {
   const cfg = await config();
-  const owners = cfg.selfOwners.map(sqlString).join(",");
-  const excl = cfg.excludedFacilityStatuses.map(sqlString).join(",");
+  const selfOwners = rule?.selfOwners ?? cfg.selfOwners;
+  const excludedStatuses = rule?.excludedStatuses ?? cfg.excludedFacilityStatuses;
+  // An empty owner set means "nothing is ours" -> no conflicts (and avoids `IN ()`).
+  if (selfOwners.length === 0) return { count: 0, facilities: EMPTY_FC };
+  const owners = selfOwners.map(sqlString).join(",");
+  const exclClause = excludedStatuses.length
+    ? `AND f.status NOT IN (${excludedStatuses.map(sqlString).join(",")})`
+    : "";
   const aoiJson = sqlString(JSON.stringify(aoi));
   const rows = await q<GeomRow>(
     `WITH aoi AS (SELECT ST_GeomFromGeoJSON(${aoiJson}) AS g)
@@ -193,10 +216,28 @@ export async function conflictForAoi(aoi: Geometry): Promise<ConflictResult> {
             ST_AsGeoJSON(ST_GeomFromWKB(f.geom)) AS gj
      FROM read_parquet('facility.parquet') f, aoi
      WHERE f.owner IN (${owners})
-       AND f.status NOT IN (${excl})
+       ${exclClause}
        AND ST_Intersects(aoi.g, ST_GeomFromWKB(f.geom))`,
   );
   return { count: rows.length, facilities: toFC(rows) };
+}
+
+// Distinct owners/statuses in the facility table (read once) to seed the rule chips.
+let facetsPromise: Promise<FacilityFacets> | null = null;
+export function facilityFacets(): Promise<FacilityFacets> {
+  return (facetsPromise ??= (async () => {
+    const [owners, statuses] = await Promise.all([
+      q<{ owner: string }>(
+        `SELECT DISTINCT owner FROM read_parquet('facility.parquet')
+         WHERE owner IS NOT NULL ORDER BY owner`,
+      ),
+      q<{ status: string }>(
+        `SELECT DISTINCT status FROM read_parquet('facility.parquet')
+         WHERE status IS NOT NULL ORDER BY status`,
+      ),
+    ]);
+    return { owners: owners.map((r) => r.owner), statuses: statuses.map((r) => r.status) };
+  })());
 }
 
 export async function jurisdictionFor(lng: number, lat: number): Promise<string | null> {

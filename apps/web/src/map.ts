@@ -1,6 +1,7 @@
 // Thin imperative wrapper around MapLibre + terra-draw so the React layer stays declarative.
 import maplibregl, {
   Map as MlMap,
+  ExpressionSpecification,
   FitBoundsOptions,
   GeoJSONSource,
   LngLat,
@@ -34,7 +35,19 @@ const STYLE: StyleSpecification = {
   layers: [{ id: "base", type: "raster", source: "base" }],
 };
 
-const SELF_OWNER = "Operator Alpha";
+// Default "our network" owner set, until the live rule (from demo_config.json) loads.
+const DEFAULT_SELF_OWNERS = ["Operator Alpha"];
+
+// A MapLibre `case` expression: `selfVal` when the feature's owner is in the set,
+// else `otherVal`. Drives the facility line color/width from the live conflict rule.
+function ownerCase(owners: string[], selfVal: number | string, otherVal: number | string): ExpressionSpecification {
+  return [
+    "case",
+    ["in", ["get", "owner"], ["literal", owners]],
+    selfVal,
+    otherVal,
+  ] as ExpressionSpecification;
+}
 
 export type SourceId =
   | "counties"
@@ -137,8 +150,8 @@ export class MapController {
     this.map.addLayer({
       id: "facilities-line", type: "line", source: "facilities",
       paint: {
-        "line-color": ["case", ["==", ["get", "owner"], SELF_OWNER], "#5b9dff", "#54607d"],
-        "line-width": ["case", ["==", ["get", "owner"], SELF_OWNER], 2.2, 1.2],
+        "line-color": ownerCase(DEFAULT_SELF_OWNERS, "#5b9dff", "#54607d"),
+        "line-width": ownerCase(DEFAULT_SELF_OWNERS, 2.2, 1.2),
         "line-opacity": 0.9,
       },
     });
@@ -246,6 +259,15 @@ export class MapController {
       this.highlightRaf = requestAnimationFrame(tick);
     };
     this.highlightRaf = requestAnimationFrame(tick);
+  }
+
+  /** Recolor the facility lines to the live "our network" owner set — one
+   *  setPaintProperty over the whole layer, no per-feature loop. */
+  setRuleStyle(selfOwners: string[]) {
+    if (this.destroyed || !this.map.getLayer("facilities-line")) return;
+    const owners = selfOwners.length ? selfOwners : [" __none__"]; // never match on empty
+    this.map.setPaintProperty("facilities-line", "line-color", ownerCase(owners, "#5b9dff", "#54607d"));
+    this.map.setPaintProperty("facilities-line", "line-width", ownerCase(owners, 2.2, 1.2));
   }
 
   setLayerVisible(layerId: string, visible: boolean) {

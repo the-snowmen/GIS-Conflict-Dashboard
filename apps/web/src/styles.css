@@ -264,7 +264,20 @@ a { color: var(--accent); }
 .tp-fac:hover, .tp-fac:focus-visible { border-color: var(--accent); background: #20305a; outline: none; }
 .tp-fac-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-fac-id { color: var(--muted); margin-left: 6px; font-variant-numeric: tabular-nums; }
-.tp-fac .meta { color: var(--muted); flex: 0 0 auto; }
+.tp-fac .meta { color: var(--muted); flex: 0 1 auto; text-align: right; font-size: 11px; }
+.tp-facs-why { font-size: 11px; margin: 0 0 6px; }
+
+/* --- conflict-rule chips (the live, tunable rule over the fixed facilities) - */
+.rule-lbl { font-size: 11px; margin: 8px 0 5px; }
+.chip-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-toggle {
+  appearance: none; cursor: pointer; font: inherit; font-size: 12px;
+  padding: 4px 9px; border-radius: 999px;
+  background: var(--panel); color: var(--muted); border: 1px solid var(--line);
+}
+.chip-toggle:hover { border-color: var(--accent); }
+.chip-toggle.on { background: #20305a; color: var(--text); border-color: var(--accent); }
+.chip-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* --- basemap attribution: a bare ⓘ that expands on hover/focus ------------- */
 /* Collapsed = just the ⓘ button (no container box). The dark, readable box and
@@ -334,6 +347,7 @@ a { color: var(--accent); }
   .dock-title { min-height: 44px; }
   .dock-filters .ti, .dock-filters select, .dock-filters .btn { height: 44px; }
   .tk-main { min-height: 44px; }
+  .chip-toggle { min-height: 44px; padding: 6px 12px; }
 }
 
 /* narrow phones: drop the trailing word so the title reads "GIS Conflict" (no ellipsis) */

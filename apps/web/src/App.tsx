@@ -12,6 +12,7 @@ import {
   countiesLayer,
   createTicket,
   facilitiesLayer,
+  facilityFacets,
   hexDensity,
   jurisdictionFor,
   parseKmz,
@@ -20,6 +21,8 @@ import {
   ticketsLayer,
   updateTicket,
   type ConflictResult,
+  type ConflictRule,
+  type FacilityFacets,
   type MergedTicket,
   type Stats,
 } from "./services/demo";
@@ -57,13 +60,15 @@ interface TicketDetail {
 }
 
 // One conflicting facility row in the detail panel. id + geometry power the
-// hover-flash and click-to-inspect on the map; status feeds the popup.
+// hover-flash and click-to-inspect on the map; status feeds the popup; dist_m is
+// the approximate distance from the analyzed point to the facility.
 interface ConflictFacility {
   id?: number;
   owner?: string;
   voltage_class?: string;
   status?: string;
   geometry?: Geometry;
+  dist_m?: number;
 }
 
 // Minimal ticket shape shared by map-click (feature.properties) and the sidebar list.
@@ -83,6 +88,12 @@ export default function App() {
   const [radius, setRadius] = useState(100);
   const [hexOn, setHexOn] = useState(false);
   const [hexRes] = useState(7);
+  // The live conflict rule (owners that count as "ours" + statuses to exclude) and
+  // the facet options that seed its chips. `rule` is null until demo_config loads.
+  const [facets, setFacets] = useState<FacilityFacets | null>(null);
+  const [rule, setRule] = useState<ConflictRule | null>(null);
+  const ruleRef = useRef<ConflictRule | null>(null);
+  ruleRef.current = rule;
   const [kmzName, setKmzName] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ConflictInfo | null>(null);
   const [ticketInfo, setTicketInfo] = useState<TicketDetail | null>(null);
@@ -129,6 +140,15 @@ export default function App() {
         c.enableInspect((layerId, feature, lngLat) => onInspectRef.current(layerId, feature, lngLat));
         const cfg = await config();
         setLabel(cfg.label);
+        // Seed the live conflict rule from the config defaults, and its chip options.
+        const initialRule: ConflictRule = {
+          selfOwners: cfg.selfOwners,
+          excludedStatuses: cfg.excludedFacilityStatuses,
+        };
+        ruleRef.current = initialRule;
+        setRule(initialRule);
+        c.setRuleStyle(cfg.selfOwners);
+        void facilityFacets().then(setFacets);
         const [facilities, counties, ticketsFc] = await Promise.all([
           facilitiesLayer(),
           countiesLayer(),
@@ -160,7 +180,7 @@ export default function App() {
       const empty: ConflictResult = { count: 0, facilities: { type: "FeatureCollection", features: [] } };
       if (!c) return empty;
       c.setData("aoi", { type: "FeatureCollection", features: [{ type: "Feature", geometry: geom, properties: {} }] });
-      const res = await conflictForAoi(geom);
+      const res = await conflictForAoi(geom, ruleRef.current ?? undefined);
       c.setData("conflict", res.facilities);
       const jur = await jurisdictionFor(at[0], at[1]);
       setConflict({ count: res.count, jurisdiction: jur, via });
@@ -202,16 +222,20 @@ export default function App() {
         radius: radiusRef.current,
         lon: lng,
         lat,
-        facilities: res.facilities.features.map((f) => {
-          const p = (f.properties ?? {}) as Record<string, unknown>;
-          return {
-            id: p.id as number | undefined,
-            owner: p.owner as string | undefined,
-            voltage_class: p.voltage_class as string | undefined,
-            status: p.status as string | undefined,
-            geometry: f.geometry,
-          };
-        }),
+        facilities: res.facilities.features
+          .map((f) => {
+            const p = (f.properties ?? {}) as Record<string, unknown>;
+            return {
+              id: p.id as number | undefined,
+              owner: p.owner as string | undefined,
+              voltage_class: p.voltage_class as string | undefined,
+              status: p.status as string | undefined,
+              geometry: f.geometry,
+              dist_m: f.geometry ? distPointToGeomM([lng, lat], f.geometry) : undefined,
+            };
+          })
+          // Nearest conflicting facility first — the itemized "why", ordered by proximity.
+          .sort((a, b) => (a.dist_m ?? Infinity) - (b.dist_m ?? Infinity)),
       });
     },
     [runConflict],
@@ -320,6 +344,34 @@ export default function App() {
     }, 120);
     return () => clearTimeout(id);
   }, [radius, handleTicketSelect, runConflict]);
+
+  // Live rule: recolor the facilities and re-run the last analysis when the rule
+  // changes (the facilities are facts; the rule is the tunable opinion over them).
+  useEffect(() => {
+    const c = ctrl.current;
+    if (!c || !rule) return;
+    c.setRuleStyle(rule.selfOwners);
+    const lp = lastPointRef.current;
+    const lastGeom = lastResultRef.current?.geom;
+    if (!lp && !lastGeom) return; // nothing analyzed yet — just the recolor
+    const id = setTimeout(() => {
+      if (lp?.ticket) void handleTicketSelect(lp.ticket, lp.lng, lp.lat, false);
+      else if (lp) void runConflict(bufferPoint(lp.lng, lp.lat, radiusRef.current), [lp.lng, lp.lat], `${radiusRef.current} m buffer`, false);
+      else if (lastGeom) void runConflict(lastGeom, polygonCentroid(lastGeom), "drawn area", false);
+    }, 120);
+    return () => clearTimeout(id);
+  }, [rule, handleTicketSelect, runConflict]);
+
+  const toggleRuleOwner = useCallback((o: string) => {
+    setRule((r) =>
+      r ? { ...r, selfOwners: r.selfOwners.includes(o) ? r.selfOwners.filter((x) => x !== o) : [...r.selfOwners, o] } : r,
+    );
+  }, []);
+  const toggleRuleExcluded = useCallback((s: string) => {
+    setRule((r) =>
+      r ? { ...r, excludedStatuses: r.excludedStatuses.includes(s) ? r.excludedStatuses.filter((x) => x !== s) : [...r.excludedStatuses, s] } : r,
+    );
+  }, []);
 
   // --- ticket CRUD ---------------------------------------------------------
   const refreshTickets = useCallback(async () => {
@@ -659,6 +711,54 @@ export default function App() {
           {mode === "draw" && <p className="muted">Click to add vertices; double-click to finish the Area of Interest (AOI).</p>}
         </section>
 
+        {facets && rule && (
+          <section className="card">
+            <h2>
+              Conflict rule
+              <Info title="Which facilities count as a conflict. The facilities are fixed facts; this rule is the tunable opinion applied over them — change it and the analysis re-runs live." />
+            </h2>
+            <div className="rule-lbl muted">Your network — owners that count</div>
+            <div className="chip-toggles" role="group" aria-label="Owners that count as your network">
+              {facets.owners.map((o) => {
+                const on = rule.selfOwners.includes(o);
+                return (
+                  <button
+                    key={o}
+                    type="button"
+                    className={`chip-toggle${on ? " on" : ""}`}
+                    aria-pressed={on}
+                    onClick={() => toggleRuleOwner(o)}
+                    title={on ? "Counts as your network — click to drop" : "Ignored — click to include"}
+                  >
+                    {o}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="rule-lbl muted">Exclude facilities with status</div>
+            <div className="chip-toggles" role="group" aria-label="Facility statuses to exclude">
+              {facets.statuses.map((s) => {
+                const on = rule.excludedStatuses.includes(s);
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    className={`chip-toggle${on ? " on" : ""}`}
+                    aria-pressed={on}
+                    onClick={() => toggleRuleExcluded(s)}
+                    title={on ? "Excluded from conflicts — click to include" : "Counts as a conflict — click to exclude"}
+                  >
+                    {s}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="muted" style={{ margin: "8px 0 0" }}>
+              A conflict = a facility owned by your network, not in an excluded status, inside the AOI.
+            </p>
+          </section>
+        )}
+
         {editing && (
           <section className="card edit-card">
             <div className="tp-head">
@@ -840,7 +940,7 @@ export default function App() {
             <div className="tp-row">
               <span className="muted">
                 Live · {ticketInfo.radius} m
-                <Info title="Recomputed now at the current slider radius using a geodesic buffer. It differs from Recorded because the radius and the buffer method differ — this is expected." />
+                <Info title="Recomputed now at the current radius, a geodesic buffer, and the live conflict rule. It can differ from Recorded when the radius, buffer method, or rule differ — this is expected." />
               </span>
               <span className={`pill ${ticketInfo.liveCount > 0 ? "conflict" : "clear"}`}>
                 {ticketInfo.liveCount > 0 ? `${ticketInfo.liveCount} conflict` : "clear"}
@@ -855,7 +955,12 @@ export default function App() {
             </div>
             {ticketInfo.facilities.length > 0 && (
               <div className="tp-facs">
-                <h3>Conflicting facilities <span className="muted">· click to inspect</span></h3>
+                <h3>
+                  Why flagged <span className="muted">· {ticketInfo.facilities.length} conflicting {ticketInfo.facilities.length === 1 ? "facility" : "facilities"}, click to inspect</span>
+                </h3>
+                <p className="tp-facs-why muted">
+                  Owned by your network, not excluded by status, inside the {ticketInfo.radius} m AOI.
+                </p>
                 {ticketInfo.facilities.map((f, i) => (
                   <button
                     key={f.id ?? i}
@@ -872,7 +977,11 @@ export default function App() {
                       {f.owner ?? "—"}
                       {f.id != null && <span className="tp-fac-id">#{f.id}</span>}
                     </span>
-                    <span className="meta">{f.voltage_class ?? ""}</span>
+                    <span className="meta">
+                      {[f.voltage_class, f.status, f.dist_m != null ? `≈ ${fmtMeters(f.dist_m)}` : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -998,6 +1107,11 @@ function Info({ title }: { title: string }) {
   );
 }
 
+// Compact distance label: meters under 1 km, else km with one decimal.
+function fmtMeters(m: number): string {
+  return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
+}
+
 function LegendItem({ c, t, kind }: { c: string; t: string; kind: "point" | "line" | "polygon" | "tri" }) {
   return (
     <div className="item">
@@ -1068,6 +1182,39 @@ function lineCentroid(geom: Geometry): Position {
   else if (geom.type === "Polygon") return polygonCentroid(geom);
   if (pts.length === 0) return [0, 0];
   return pts[Math.floor(pts.length / 2)];
+}
+
+// Approximate distance (meters) from a point to a facility geometry, via a local
+// equirectangular projection around the point (accurate at AOI scales) + point-to-
+// segment distance. Screening-grade, labeled "≈" in the UI.
+function distPointToGeomM(pt: Position, geom: Geometry): number {
+  const R = 6371008.8; // mean Earth radius (m)
+  const [plng, plat] = pt;
+  const cosLat = Math.cos((plat * Math.PI) / 180);
+  const proj = (p: Position): [number, number] => [
+    (((p[0] - plng) * Math.PI) / 180) * cosLat * R,
+    (((p[1] - plat) * Math.PI) / 180) * R,
+  ];
+  const segDist = (a: Position, b: Position): number => {
+    const [ax, ay] = proj(a);
+    const [bx, by] = proj(b);
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 ? -(ax * dx + ay * dy) / len2 : 0; // foot of perpendicular (point at origin)
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(ax + t * dx, ay + t * dy);
+  };
+  let rings: Position[][] = [];
+  if (geom.type === "LineString") rings = [geom.coordinates];
+  else if (geom.type === "MultiLineString") rings = geom.coordinates;
+  else if (geom.type === "Polygon") rings = geom.coordinates;
+  else if (geom.type === "MultiPolygon") rings = geom.coordinates.flat();
+  else if (geom.type === "Point") return Math.hypot(...proj(geom.coordinates));
+  let min = Infinity;
+  for (const ring of rings)
+    for (let i = 1; i < ring.length; i++) min = Math.min(min, segDist(ring[i - 1], ring[i]));
+  return Number.isFinite(min) ? min : 0;
 }
 
 // Average of a polygon's exterior ring — good enough to pick a jurisdiction.
