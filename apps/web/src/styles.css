@@ -250,8 +250,21 @@ a { color: var(--accent); }
 .tp-close:hover { color: var(--text); }
 .tp-id { font-size: 15px; font-weight: 650; margin: 6px 0 10px; }
 .tp-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; margin: 6px 0; }
-.tp-info { cursor: help; margin-left: 5px; opacity: 0.65; font-size: 11px; }
-.tp-info:hover, .tp-info:focus { opacity: 1; color: var(--accent); outline: none; }
+/* --- glossary info chips + portaled popover ------------------------------- */
+.info { position: relative; display: inline-flex; vertical-align: baseline; }
+.info-btn {
+  appearance: none; border: none; background: none; cursor: help; color: var(--muted);
+  font-size: 11px; line-height: 1; padding: 0 2px; opacity: 0.7;
+}
+.info-btn:hover, .info-btn:focus-visible { opacity: 1; color: var(--accent); outline: none; }
+/* "?" glossary chips read as a small pill; the ⓘ variant stays a bare glyph. */
+.info-btn { min-width: 14px; text-align: center; }
+.info-pop {
+  position: fixed; z-index: 200; max-width: 260px;
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.45;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4);
+}
 .tp-facs { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
 .tp-facs h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; }
 /* facility rows are buttons (keyboard-focusable) styled as list items */
@@ -268,6 +281,15 @@ a { color: var(--accent); }
 .tp-facs-why { font-size: 11px; margin: 0 0 6px; }
 
 /* --- conflict-rule chips (the live, tunable rule over the fixed facilities) - */
+.rule-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.preset {
+  appearance: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600;
+  padding: 5px 10px; border-radius: 7px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line);
+}
+.preset:hover { border-color: var(--accent); }
+.preset.active { border-color: var(--accent); background: #20305a; }
+.preset:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .rule-lbl { font-size: 11px; margin: 8px 0 5px; }
 .chip-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip-toggle {
@@ -348,6 +370,8 @@ a { color: var(--accent); }
   .dock-filters .ti, .dock-filters select, .dock-filters .btn { height: 44px; }
   .tk-main { min-height: 44px; }
   .chip-toggle { min-height: 44px; padding: 6px 12px; }
+  .preset { min-height: 44px; padding: 6px 12px; }
+  .info-btn { min-width: 28px; min-height: 28px; padding: 6px; }
 }
 
 /* narrow phones: drop the trailing word so the title reads "GIS Conflict" (no ellipsis) */

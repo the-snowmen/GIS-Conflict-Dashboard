@@ -1,7 +1,38 @@
 // Client-side export helpers: turn in-browser conflict/ticket data into downloadable
 // GeoJSON or KMZ files. No backend, no dependencies — Blobs + a hand-built store ZIP.
+//
+// Exports are self-documenting: the filename is dated, and every conflict file carries
+// the exact rule assumptions it was made under plus a disclaimer, so an exported file is
+// never divorced from how it was produced (data honesty — synthetic tickets, modeled rule).
 import type { Feature, FeatureCollection, Geometry, Position } from "geojson";
 import type { MergedTicket } from "./overlay";
+
+// The tunable assumptions baked into a conflict export (mirrors the live rule + AOI).
+export interface ExportAssumptions {
+  selfOwners: string[];
+  excludedStatuses: string[];
+  via: string; // how the AOI was made, e.g. "100 m buffer" or "drawn area"
+  label: string; // region label, e.g. "Austin, TX"
+}
+
+const DISCLAIMER =
+  "Modeled screening over public-domain infrastructure + synthetic work tickets. A conflict = a " +
+  "facility owned by the selected network, not in an excluded status, intersecting the Area of " +
+  "Interest. Not a survey, locate, or authoritative clearance.";
+
+const iso = (): string => new Date().toISOString().slice(0, 10);
+
+/** Dated, self-labeling filename stem, e.g. `gis-conflict_conflicts_2026-07-02.kmz`. */
+export function exportName(kind: string, ext: string): string {
+  return `gis-conflict_${kind}_${iso()}.${ext}`;
+}
+
+/** One-line summary of the rule assumptions an export was produced under. */
+function assumptionLine(a: ExportAssumptions): string {
+  const owners = a.selfOwners.length ? a.selfOwners.join(", ") : "(none)";
+  const excl = a.excludedStatuses.length ? a.excludedStatuses.join(", ") : "(none)";
+  return `Region ${a.label} · AOI: ${a.via} · your network: ${owners} · excluded status: ${excl}`;
+}
 
 /** Trigger a browser download of text content as a file. */
 export function downloadText(filename: string, mime: string, text: string): void {
@@ -41,8 +72,20 @@ function facilityProps(f: Feature): FacilityProps {
  * Buffer/AOI geometry + intersected facilities as one GeoJSON FeatureCollection.
  * Coordinates are WGS84 / EPSG:4326 (GeoJSON default, RFC 7946).
  */
-export function conflictsToGeoJson(aoi: Geometry, facilities: FeatureCollection): FeatureCollection {
-  const aoiFeature: Feature = { type: "Feature", geometry: aoi, properties: { role: "aoi_buffer" } };
+export function conflictsToGeoJson(
+  aoi: Geometry,
+  facilities: FeatureCollection,
+  assumptions?: ExportAssumptions,
+): FeatureCollection {
+  // Provenance rides on the AOI feature's `properties` (RFC 7946-safe — no custom root member).
+  const aoiFeature: Feature = {
+    type: "Feature",
+    geometry: aoi,
+    properties: {
+      role: "aoi_buffer",
+      ...(assumptions ? { assumptions: assumptionLine(assumptions), disclaimer: DISCLAIMER } : {}),
+    },
+  };
   const facs: Feature[] = facilities.features.map((f) => ({
     type: "Feature",
     geometry: f.geometry,
@@ -70,12 +113,20 @@ function ticketsToFc(tickets: MergedTicket[]): FeatureCollection {
 }
 
 // --- KMZ (KML wrapped in a store-only ZIP) ----------------------------------
-export function conflictsToKmz(aoi: Geometry, facilities: FeatureCollection): Uint8Array {
-  return kmlToKmz(geojsonToKml(conflictsToGeoJson(aoi, facilities), "Conflict analysis"));
+export function conflictsToKmz(
+  aoi: Geometry,
+  facilities: FeatureCollection,
+  assumptions?: ExportAssumptions,
+): Uint8Array {
+  const description = assumptions ? `${assumptionLine(assumptions)}\n\n${DISCLAIMER}` : DISCLAIMER;
+  // Pass assumptions through so the AOI placemark also carries them (parity with GeoJSON).
+  return kmlToKmz(
+    geojsonToKml(conflictsToGeoJson(aoi, facilities, assumptions), "Conflict analysis", description),
+  );
 }
 
 export function ticketsToKmz(tickets: MergedTicket[]): Uint8Array {
-  return kmlToKmz(geojsonToKml(ticketsToFc(tickets), "Tickets"));
+  return kmlToKmz(geojsonToKml(ticketsToFc(tickets), "Tickets", DISCLAIMER));
 }
 
 const KMZ_MIME = "application/vnd.google-earth.kmz";
@@ -137,11 +188,12 @@ function placemark(f: Feature): string {
   }${geomToKml(f.geometry)}</Placemark>`;
 }
 
-function geojsonToKml(fc: FeatureCollection, docName: string): string {
+function geojsonToKml(fc: FeatureCollection, docName: string, description?: string): string {
   const body = fc.features.map(placemark).join("");
+  const desc = description ? `<description>${xml(description)}</description>` : "";
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xml(docName)}</name>${body}</Document></kml>`
+    `<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xml(docName)}</name>${desc}${body}</Document></kml>`
   );
 }
 
