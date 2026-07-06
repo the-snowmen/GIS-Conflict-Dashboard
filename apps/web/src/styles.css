@@ -52,14 +52,15 @@ body { background: var(--bg); color: var(--text); }
 /* --- app bar -------------------------------------------------------------- */
 .appbar {
   grid-area: appbar;
+  position: relative;
   display: flex; align-items: center; gap: 14px;
   padding: 0 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
 .appbar h1 { font-size: 15px; margin: 0; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* top-level mode toggle (Tickets | Cell index) */
-.mode-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; flex: 0 0 auto; margin-left: 16px; }
+/* top-level mode toggle (Tickets | Cell index) — centered in the app bar */
+.mode-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; flex: 0 0 auto; position: absolute; left: 50%; transform: translateX(-50%); margin: 0; }
 .mode-btn {
   appearance: none; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
   padding: 7px 16px; border: none; background: var(--panel-2); color: var(--muted);
@@ -144,6 +145,10 @@ body { background: var(--bg); color: var(--text); }
 }
 .tp-back:hover { color: var(--accent); }
 .help-btn { font-weight: 700; }
+/* imported-KMZ row: filename + remove button */
+.kmz-loaded { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.kmz-loaded .muted { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kmz-loaded .mini { flex: 0 0 auto; }
 
 /* --- keyboard-shortcuts help overlay -------------------------------------- */
 .help-backdrop {
@@ -420,12 +425,13 @@ a { color: var(--accent); }
 .cell-legend-note { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
 .hot-swatch { display: inline-block; width: 10px; height: 10px; border: 2px solid #ffd166; border-radius: 2px; vertical-align: middle; margin-right: 3px; }
 
-.cell-table { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+/* fill the left column so the ranked list isn't clipped */
+.cell-table { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .cell-rank-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .cell-table-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .cell-sort { font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
 .cell-sort select { font: inherit; font-size: 11px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; }
-.cell-rank-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; }
+.cell-rank-list { display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .cell-row {
   appearance: none; width: 100%; text-align: left; cursor: pointer; color: inherit; font: inherit;
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -527,7 +533,7 @@ a { color: var(--accent); }
   /* header trims */
   .chips { gap: 5px; flex-shrink: 0; }
   .chips .chip-l { font-size: 8px; letter-spacing: 0.02em; }
-  .mode-seg { margin-left: 8px; }
+  .mode-seg { position: static; transform: none; margin-left: 8px; }
   .brand-sub { display: none; }
   .brand-mark { display: none; }
   .appbar h1 { font-size: 14px; }

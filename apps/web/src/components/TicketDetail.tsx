@@ -12,7 +12,6 @@ export default function TicketDetail({
   onRecenter,
   onEdit,
   onClose,
-  onExportGeoJson,
   onExportKmz,
   onHoverFacility,
   onLeaveFacility,
@@ -23,7 +22,6 @@ export default function TicketDetail({
   onRecenter: () => void;
   onEdit: () => void;
   onClose: () => void;
-  onExportGeoJson: () => void;
   onExportKmz: () => void;
   onHoverFacility: (geom: Geometry | null) => void;
   onLeaveFacility: () => void;
@@ -70,7 +68,6 @@ export default function TicketDetail({
         Recorded = intake snapshot; Live = recomputed at the current radius. They differ by design.
       </p>
       <div className="tp-export">
-        <button className="mini" onClick={onExportGeoJson} title="Export buffer + conflicts as GeoJSON (WGS84)">⤓ GeoJSON</button>
         <button className="mini" onClick={onExportKmz} title="Export buffer + conflicts as KMZ (Google Earth)">⤓ KMZ</button>
       </div>
       {info.facilities.length > 0 && (

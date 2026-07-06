@@ -65,7 +65,6 @@ export type InspectHandler = (layerId: string, feature: MapGeoJSONFeature, lngLa
 // Clickable layers, highest priority first. queryRenderedFeatures returns hits in render
 // order (not this order), so we walk this list and take the first layer with a hit.
 const INTERACTIVE_LAYERS = [
-  "tickets-conflict",
   "tickets-circle",
   "conflict-line",
   "kmz-point",
@@ -202,8 +201,8 @@ export class MapController {
     this.map.addLayer({
       id: "facilities-line", type: "line", source: "facilities",
       paint: {
-        "line-color": ownerCase(DEFAULT_SELF_OWNERS, "#5b9dff", "#54607d"),
-        "line-width": ownerCase(DEFAULT_SELF_OWNERS, 2.2, 1.2),
+        "line-color": ownerCase(DEFAULT_SELF_OWNERS, "#5b9dff", "#8b96b5"),
+        "line-width": ownerCase(DEFAULT_SELF_OWNERS, 2.2, 1.4),
         "line-opacity": 0.9,
       },
     });
@@ -223,32 +222,24 @@ export class MapController {
       paint: { "circle-radius": 5, "circle-color": "#c08bff" },
     });
 
-    // Conflict vs clear differ by SHAPE (triangle vs dot), not color alone, so
-    // red-green colorblind users can tell them apart. Clear tickets = teal dot;
-    // conflict tickets = a warning-triangle icon drawn at runtime (keyless — the
-    // raster basemap has no glyphs server, so we register an ImageData instead).
-    if (!this.map.hasImage("conflict-tri")) {
-      this.map.addImage("conflict-tri", warningTriangle("#ff6b6b", "#0f1420"), { pixelRatio: 2 });
-    }
+    // Tickets are dots. Conflict vs clear differ by COLOR (red vs teal) and, so
+    // red-green colorblind users still have a non-color cue, by SIZE + a ring:
+    // conflict = a larger red dot with a light-red ring; clear = a small teal dot.
+    const isConflict = [">", ["get", "conflict_count"], 0] as ExpressionSpecification;
+    const conflictCase = (yes: number | string, no: number | string): ExpressionSpecification =>
+      ["case", isConflict, yes, no] as ExpressionSpecification;
     this.map.addLayer({
       id: "tickets-circle", type: "circle", source: "tickets",
-      filter: ["==", ["get", "conflict_count"], 0],
       paint: {
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 2.5, 13, 5],
-        "circle-color": "#22d3c5",
-        "circle-opacity": 0.85,
-        "circle-stroke-width": 0.5,
-        "circle-stroke-color": "#0f1420",
-      },
-    });
-    this.map.addLayer({
-      id: "tickets-conflict", type: "symbol", source: "tickets",
-      filter: [">", ["get", "conflict_count"], 0],
-      layout: {
-        "icon-image": "conflict-tri",
-        "icon-size": ["interpolate", ["linear"], ["zoom"], 8, 0.62, 13, 1.1],
-        "icon-allow-overlap": true,
-        "icon-ignore-placement": true,
+        "circle-radius": [
+          "interpolate", ["linear"], ["zoom"],
+          8, conflictCase(3.5, 2.5),
+          13, conflictCase(6, 5),
+        ] as ExpressionSpecification,
+        "circle-color": conflictCase("#ff6b6b", "#22d3c5"),
+        "circle-opacity": 0.9,
+        "circle-stroke-width": conflictCase(2, 0.5),
+        "circle-stroke-color": conflictCase("#ffb3b3", "#0f1420"),
       },
     });
 
@@ -318,8 +309,8 @@ export class MapController {
   setRuleStyle(selfOwners: string[]) {
     if (this.destroyed || !this.map.getLayer("facilities-line")) return;
     const owners = selfOwners.length ? selfOwners : [" __none__"]; // never match on empty
-    this.map.setPaintProperty("facilities-line", "line-color", ownerCase(owners, "#5b9dff", "#54607d"));
-    this.map.setPaintProperty("facilities-line", "line-width", ownerCase(owners, 2.2, 1.2));
+    this.map.setPaintProperty("facilities-line", "line-color", ownerCase(owners, "#5b9dff", "#8b96b5"));
+    this.map.setPaintProperty("facilities-line", "line-width", ownerCase(owners, 2.2, 1.4));
   }
 
   setLayerVisible(layerId: string, visible: boolean) {
@@ -527,34 +518,6 @@ export class MapController {
     }
     this.map.remove();
   }
-}
-
-// A small upward warning-triangle (with an exclamation mark) as ImageData, for the
-// conflict-ticket symbol layer. Built on a canvas so it needs no external icon asset.
-function warningTriangle(fill: string, stroke: string): ImageData {
-  const size = 30;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return new ImageData(size, size);
-  const pad = 3;
-  ctx.beginPath();
-  ctx.moveTo(size / 2, pad); // top vertex
-  ctx.lineTo(size - pad, size - pad); // bottom-right
-  ctx.lineTo(pad, size - pad); // bottom-left
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = stroke;
-  ctx.stroke();
-  // exclamation mark
-  ctx.fillStyle = stroke;
-  ctx.fillRect(size / 2 - 1, size * 0.42, 2, size * 0.26);
-  ctx.fillRect(size / 2 - 1, size * 0.74, 2, 2);
-  return ctx.getImageData(0, 0, size, size);
 }
 
 // Compute [[minX,minY],[maxX,maxY]] from a FeatureCollection.

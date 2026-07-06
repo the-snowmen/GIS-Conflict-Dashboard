@@ -132,8 +132,7 @@ export async function allTicketsMerged(): Promise<MergedTicket[]> {
   return mergeRows(await baselineTickets());
 }
 
-export async function ticketsLayer(): Promise<FeatureCollection> {
-  const rows = await allTicketsMerged();
+export function ticketsToFC(rows: MergedTicket[]): FeatureCollection {
   return {
     type: "FeatureCollection",
     features: rows.map((r) => ({
@@ -149,6 +148,10 @@ export async function ticketsLayer(): Promise<FeatureCollection> {
       },
     })),
   };
+}
+
+export async function ticketsLayer(): Promise<FeatureCollection> {
+  return ticketsToFC(await allTicketsMerged());
 }
 
 // --- stats / list ----------------------------------------------------------
@@ -220,6 +223,30 @@ export async function conflictForAoi(aoi: Geometry, rule?: ConflictRule): Promis
        AND ST_Intersects(aoi.g, ST_GeomFromWKB(f.geom))`,
   );
   return { count: rows.length, facilities: toFC(rows) };
+}
+
+/** Per-ticket conflict count under a live rule, across ALL baseline tickets, using each
+ *  ticket's recorded buffer polygon (aoi.parquet) intersected with the facilities matching
+ *  the rule. Under the default rule this reproduces the stored intake `conflict_count`
+ *  exactly; toggling owners/statuses moves it. Returns only tickets with count > 0. */
+export async function liveTicketConflictCounts(rule?: ConflictRule): Promise<Map<string, number>> {
+  const cfg = await config();
+  const selfOwners = rule?.selfOwners ?? cfg.selfOwners;
+  const excludedStatuses = rule?.excludedStatuses ?? cfg.excludedFacilityStatuses;
+  if (selfOwners.length === 0) return new Map(); // nothing is "ours" -> no conflicts
+  const owners = selfOwners.map(sqlString).join(",");
+  const exclClause = excludedStatuses.length
+    ? `AND f.status NOT IN (${excludedStatuses.map(sqlString).join(",")})`
+    : "";
+  const rows = await q<{ ticket_id: string; n: number }>(
+    `SELECT a.ticket_id AS ticket_id, count(*) AS n
+     FROM read_parquet('aoi.parquet') a, read_parquet('facility.parquet') f
+     WHERE f.owner IN (${owners})
+       ${exclClause}
+       AND ST_Intersects(ST_GeomFromWKB(a.geom), ST_GeomFromWKB(f.geom))
+     GROUP BY a.ticket_id`,
+  );
+  return new Map(rows.map((r) => [r.ticket_id, Number(r.n)]));
 }
 
 // Distinct owners/statuses in the facility table (read once) to seed the rule chips.

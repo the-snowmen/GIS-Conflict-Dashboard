@@ -1,16 +1,16 @@
 import type { ConflictInfo } from "../types";
 
-// The floating AOI-outcome bar (conflict count + jurisdiction + provenance + exports).
+// The floating AOI-outcome bar (conflict count + jurisdiction + provenance + actions).
 export default function ResultBar({
   conflict,
   canSaveAsTicket,
-  onExportGeoJson,
+  onRecenter,
   onExportKmz,
   onSaveAsTicket,
 }: {
   conflict: ConflictInfo;
   canSaveAsTicket: boolean;
-  onExportGeoJson: () => void;
+  onRecenter: () => void;
   onExportKmz: () => void;
   onSaveAsTicket: () => void;
 }) {
@@ -23,7 +23,7 @@ export default function ResultBar({
       )}
       <span className="muted">· {conflict.jurisdiction ?? "outside the coverage area"} · {conflict.via}</span>
       <span className="result-actions">
-        <button className="btn-inline ghost" onClick={onExportGeoJson} title="Download buffer + conflicting facilities as GeoJSON (WGS84)">⤓ GeoJSON</button>
+        <button className="btn-inline ghost" onClick={onRecenter} title="Re-center the map on this area">⌖ Locate</button>
         <button className="btn-inline ghost" onClick={onExportKmz} title="Download buffer + conflicting facilities as KMZ (Google Earth)">⤓ KMZ</button>
         {canSaveAsTicket && (
           <button className="btn-inline" onClick={onSaveAsTicket}>＋ Save as ticket</button>
