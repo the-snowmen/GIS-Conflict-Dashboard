@@ -119,6 +119,14 @@ export class MapController {
     );
     this.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     this.map.addControl(this.homeControl(), "bottom-right");
+    // MapLibre opens the compact attribution on first paint; collapse it so it
+    // starts as just the ⓘ button (default hidden, tap/hover to expand). Any later
+    // resize keeps it minimized, so this only needs to run once on load.
+    this.map.on("load", () => {
+      container
+        .querySelector(".maplibregl-ctrl-attrib")
+        ?.classList.remove("maplibregl-compact-show");
+    });
     this.map.on("click", (e) => {
       if (this.clickMode === "buffer" && this.onBufferClick) {
         this.onBufferClick(e.lngLat.lng, e.lngLat.lat);
