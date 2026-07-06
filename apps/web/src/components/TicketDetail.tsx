@@ -31,6 +31,7 @@ export default function TicketDetail({
 }) {
   return (
     <aside className="inspector card" ref={panelRef} tabIndex={-1} aria-label="Ticket detail">
+      <button className="tp-back" onClick={onClose}>‹ Back to list</button>
       <div className="tp-head">
         <h2>Ticket detail</h2>
         <div className="tp-actions">
