@@ -435,21 +435,69 @@ a { color: var(--accent); }
 .maplibregl-ctrl-attrib.maplibregl-compact:focus-within .maplibregl-ctrl-attrib-inner { display: block !important; }
 .maplibregl-ctrl-attrib-inner a { color: var(--accent); }
 
-/* --- responsive: Phase-1 stopgap — stack the 4 blocks vertically, map first.
-   Phase 3 replaces this with a Google/Apple-Maps draggable bottom-sheet drawer. */
+/* --- responsive: phone = a Maps-style bottom-sheet drawer over a full-bleed map */
 @media (max-width: 900px) {
-  .app {
-    height: auto; min-height: 100%;
+  .app.mobile {
+    height: 100%;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: var(--appbar-h) auto 58vh auto auto;
+    grid-template-rows: var(--appbar-h) auto minmax(0, 1fr);
     grid-template-areas:
       "appbar"
       "filter"
-      "map"
-      "left"
-      "right";
+      "map";
   }
-  .left, .right { border: none; border-top: 1px solid var(--line); }
+  .app.mobile .filter { grid-area: filter; }
+  .app.mobile .map-wrap { grid-area: map; }
+  .filter-strip { flex-wrap: wrap; }
+
+  /* left/right become bottom sheets sized by the --sheet-h detent var */
+  .app.mobile .left,
+  .app.mobile .right {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    height: var(--sheet-h); max-height: 94vh; z-index: 21;
+    border: none; border-radius: 0; padding: 10px 12px 16px;
+    background: var(--panel);
+  }
+  .app.mobile[data-sheet="browse"] .right { display: none; }
+  .app.mobile[data-sheet="tools"] .left { display: none; }
+  .app.mobile .left .inspector { max-height: none; }
+
+  /* sheet chrome (grabber + Browse|Tools) sits flush atop the active sheet */
+  .sheet-chrome {
+    position: fixed; left: 0; right: 0; bottom: var(--sheet-h); z-index: 22;
+    background: var(--panel); border-top: 1px solid var(--line);
+    border-radius: 14px 14px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
+    padding: 4px 12px 8px;
+  }
+  .sheet-grab { display: grid; place-items: center; padding: 6px 0 4px; touch-action: none; }
+  .sheet-handle {
+    appearance: none; border: none; width: 40px; height: 5px; border-radius: 3px;
+    background: var(--line); cursor: grab; padding: 0;
+  }
+  .sheet-handle:hover { background: var(--muted); }
+  .sheet-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+  .sheet-seg { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .seg-btn {
+    appearance: none; flex: 1; cursor: pointer; font: inherit; font-size: 13px; font-weight: 650;
+    padding: 9px 8px; border: none; background: var(--panel-2); color: var(--muted);
+  }
+  .seg-btn + .seg-btn { border-left: 1px solid var(--line); }
+  .seg-btn.active { background: #20305a; color: var(--text); }
+  .seg-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* tools FAB floats above the sheet */
+  .tools-fab {
+    position: fixed; right: 14px; bottom: calc(var(--sheet-h) + 54px); z-index: 23;
+    width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line);
+    background: var(--accent); color: #0b1020; font-size: 20px; cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4); display: grid; place-items: center;
+  }
+
+  /* keep map controls + result bar above the sheet */
+  .app.mobile .maplibregl-ctrl-bottom-right { bottom: calc(var(--sheet-h) + 8px); }
+  .app.mobile .result { bottom: calc(var(--sheet-h) + 12px); }
+
+  /* header trims */
   .chips { gap: 5px; flex-shrink: 0; }
   .chips .chip-l { font-size: 8px; letter-spacing: 0.02em; }
   .mode-seg { margin-left: 8px; }
@@ -474,6 +522,8 @@ a { color: var(--accent); }
   .info-btn { min-width: 28px; min-height: 28px; padding: 6px; }
   .mode-btn { min-height: 44px; }
   .cell-row { min-height: 44px; }
+  .tab { min-height: 44px; }
+  .seg-btn { min-height: 46px; }
 }
 
 /* narrow phones: drop the trailing word so the title reads "GIS Conflict" (no ellipsis) */
