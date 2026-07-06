@@ -91,6 +91,10 @@ export class MapController {
   private highlightRaf?: number;
   // Bounds of the loaded dataset, so the "zoom to data" control can re-home the view.
   private homeBounds?: [[number, number], [number, number]];
+  // Observe the map container so CSS-driven size changes (rail collapse, drawer
+  // open/close) re-fit the canvas — maplibre's built-in trackResize only catches
+  // window resizes, not container resizes.
+  private resizeObserver?: ResizeObserver;
 
   constructor(container: HTMLElement) {
     this.map = new maplibregl.Map({
@@ -115,6 +119,18 @@ export class MapController {
         this.onAddPointClick(e.lngLat.lng, e.lngLat.lat);
       }
     });
+    // Re-fit the canvas whenever the container changes size (rail/drawer collapse).
+    if (typeof ResizeObserver !== "undefined") {
+      this.resizeObserver = new ResizeObserver(() => {
+        if (!this.destroyed) this.map.resize();
+      });
+      this.resizeObserver.observe(container);
+    }
+  }
+
+  /** Re-fit the map canvas to its container (call after a layout/size change). */
+  resize() {
+    if (!this.destroyed) this.map.resize();
   }
 
   whenReady(cb: () => void) {
@@ -491,6 +507,7 @@ export class MapController {
 
   destroy() {
     this.destroyed = true;
+    this.resizeObserver?.disconnect();
     if (this.highlightRaf !== undefined) cancelAnimationFrame(this.highlightRaf);
     this.disableInspect();
     this.removeDragMarker();
