@@ -8,9 +8,9 @@
   --accent: #5b9dff;
   --danger: #ff6b6b;
   --ok: #3ecf8e;
-  --rail-w: 320px;
-  --topbar-h: 52px;
-  --dock-h: 240px;
+  --left-w: 320px;
+  --right-w: 340px;
+  --appbar-h: 52px;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -34,27 +34,34 @@ body { background: var(--bg); color: var(--text); }
 
 .app {
   display: grid;
-  grid-template-rows: var(--topbar-h) 1fr auto;
-  grid-template-columns: var(--rail-w) 1fr;
+  grid-template-rows: var(--appbar-h) auto minmax(0, 1fr);
+  grid-template-columns: var(--left-w) minmax(0, 1fr) var(--right-w);
+  grid-template-areas:
+    "appbar appbar appbar"
+    "filter filter filter"
+    "left   map    right";
   height: 100%;
 }
-.app.rail-collapsed { --rail-w: 0px; }
 
-/* --- top bar -------------------------------------------------------------- */
-.topbar {
-  grid-column: 1 / -1;
+/* --- app bar -------------------------------------------------------------- */
+.appbar {
+  grid-area: appbar;
   display: flex; align-items: center; gap: 14px;
   padding: 0 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
-.topbar h1 { font-size: 15px; margin: 0; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.rail-toggle {
-  appearance: none; background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
-  width: 34px; height: 34px; border-radius: 8px; cursor: pointer; font-size: 15px;
-  flex: 0 0 auto; display: grid; place-items: center;
+.appbar h1 { font-size: 15px; margin: 0; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* top-level mode toggle (Tickets | Cell index) */
+.mode-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; flex: 0 0 auto; margin-left: 16px; }
+.mode-btn {
+  appearance: none; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+  padding: 7px 16px; border: none; background: var(--panel-2); color: var(--muted);
 }
-.rail-toggle:hover { border-color: var(--accent); }
+.mode-btn + .mode-btn { border-left: 1px solid var(--line); }
+.mode-btn:hover { color: var(--text); }
+.mode-btn.active { background: #20305a; color: var(--text); }
+.mode-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .brand-mark { color: var(--accent); font-size: 18px; line-height: 1; }
 .brand-text { min-width: 0; }
@@ -70,22 +77,39 @@ body { background: var(--bg); color: var(--text); }
 .chip-danger .chip-n { color: var(--danger); }
 .chip[title] { cursor: help; }
 
-/* --- left rail ------------------------------------------------------------ */
-.rail {
-  grid-row: 2 / 4; grid-column: 1;
+/* --- side columns: left = detail/master, right = tools -------------------- */
+.left, .right {
   background: var(--panel);
-  border-right: 1px solid var(--line);
   overflow-y: auto;
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.app.rail-collapsed .rail { display: none; }
-/* Dim backdrop behind the mobile drawer (tap to dismiss). Desktop: never shown. */
-.rail-backdrop { display: none; }
-.rail h1 { font-size: 17px; margin: 0; }
-.rail h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 8px; }
+.left { grid-area: left; border-right: 1px solid var(--line); }
+.right { grid-area: right; border-left: 1px solid var(--line); }
+.right h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 8px; }
+
+/* left master header: title + list-scoped actions */
+.left-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.left-title { font-size: 13px; margin: 0; white-space: nowrap; }
+.left-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.left-actions .btn { width: auto; padding: 7px 10px; font-size: 12px; }
+.place-hint { margin: 0; }
+/* the ticket list fills the left column (single column of cards) */
+.left .dock-list { padding: 8px 0 0; overflow: visible; }
+/* the detail panel is de-floated into the left column */
+.left .inspector { position: static; width: auto; max-height: none; overflow: visible; box-shadow: none; }
+
+/* --- filter strip (search + selects, above the map) ----------------------- */
+.filter { grid-area: filter; background: var(--panel); border-bottom: 1px solid var(--line); padding: 8px 12px; }
+.filter-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.filter-strip .ti, .filter-strip select {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 0 10px; height: 34px; font-size: 12px; box-sizing: border-box;
+}
+.filter-strip .fs-search { flex: 1 1 260px; min-width: 160px; }
+.filter-strip select { flex: 0 0 auto; }
 
 .card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -102,7 +126,7 @@ body { background: var(--bg); color: var(--text); }
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
 
-.map-wrap { position: relative; grid-row: 2; grid-column: 2; }
+.map-wrap { position: relative; grid-area: map; }
 #map { position: absolute; inset: 0; }
 
 .legend { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
@@ -365,6 +389,9 @@ a { color: var(--accent); }
 }
 /* Stay a bare ⓘ regardless of maplibre's default-expanded (compact-show) state;
    reveal the (license-required) credit text only on hover/focus. */
+/* Stay a bare ⓘ regardless of maplibre's default-expanded (compact-show) state;
+   reveal the basemap + data credits only on hover, focus, or click (clicking the
+   ⓘ button focuses it → :focus-within). */
 .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner,
 .maplibregl-ctrl-attrib.maplibregl-compact.maplibregl-compact-show .maplibregl-ctrl-attrib-inner { display: none !important; }
 .maplibregl-ctrl-attrib.maplibregl-compact:hover,
@@ -375,42 +402,27 @@ a { color: var(--accent); }
 .maplibregl-ctrl-attrib.maplibregl-compact:focus-within .maplibregl-ctrl-attrib-inner { display: block !important; }
 .maplibregl-ctrl-attrib-inner a { color: var(--accent); }
 
-/* --- responsive: rail becomes an off-canvas drawer; inspector a bottom sheet */
+/* --- responsive: Phase-1 stopgap — stack the 4 blocks vertically, map first.
+   Phase 3 replaces this with a Google/Apple-Maps draggable bottom-sheet drawer. */
 @media (max-width: 900px) {
-  /* minmax(0,1fr) (not 1fr) so the single column can't grow past the viewport on a
-     nowrap title + chips — keeps the header from blowing out the page width.
-     A taller open dock so the ticket list shows several cards, not just one. */
-  .app { grid-template-columns: minmax(0, 1fr); --dock-h: min(62vh, 540px); }
-  .map-wrap { grid-column: 1; }
-  .dock { grid-column: 1; }
-  .rail {
-    position: fixed; top: var(--topbar-h); bottom: 0; left: 0;
-    width: min(86vw, 320px); z-index: 30; box-shadow: 0 0 30px rgba(0,0,0,0.5);
+  .app {
+    height: auto; min-height: 100%;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: var(--appbar-h) auto 58vh auto auto;
+    grid-template-areas:
+      "appbar"
+      "filter"
+      "map"
+      "left"
+      "right";
   }
-  .rail-backdrop {
-    display: block; position: fixed; inset: var(--topbar-h) 0 0 0;
-    background: rgba(0,0,0,0.45); z-index: 29;
-  }
-  /* chips never shrink — all four stay (with captions); the title (ellipsis) yields width */
+  .left, .right { border: none; border-top: 1px solid var(--line); }
   .chips { gap: 5px; flex-shrink: 0; }
   .chips .chip-l { font-size: 8px; letter-spacing: 0.02em; }
+  .mode-seg { margin-left: 8px; }
   .brand-sub { display: none; }
-  /* reclaim header width for the four stat chips */
   .brand-mark { display: none; }
-  .topbar h1 { font-size: 14px; }
-  .inspector {
-    top: auto; bottom: 0; left: 0; right: 0; width: auto;
-    max-height: 55%; border-radius: 12px 12px 0 0;
-  }
-  /* the bottom sheet already shows the conflict counts — drop the redundant result bar it would cover */
-  .map-wrap.has-inspector .result { display: none; }
-  /* dock: title above the filters; filters become a 2-up grid */
-  .dock-head { flex-direction: column; align-items: stretch; gap: 8px; }
-  .dock-title { align-self: flex-start; }
-  .dock-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .dock-filters .ti { grid-column: 1 / -1; flex: none; min-width: 0; }
-  .dock-filters .btn { width: auto; }
-  .dock-filters > .muted { grid-column: 1 / -1; }
+  .appbar h1 { font-size: 14px; }
 }
 
 /* --- touch devices: enlarge tap targets to ~44px (desktop mouse stays compact) --- */
@@ -427,7 +439,7 @@ a { color: var(--accent); }
   .chip-toggle { min-height: 44px; padding: 6px 12px; }
   .preset { min-height: 44px; padding: 6px 12px; }
   .info-btn { min-width: 28px; min-height: 28px; padding: 6px; }
-  .alt-btn { min-height: 44px; }
+  .mode-btn { min-height: 44px; }
   .cell-row { min-height: 44px; }
 }
 
@@ -438,7 +450,7 @@ a { color: var(--accent); }
 
 /* very narrow phones: shrink chips so all four stay readable, not clipped */
 @media (max-width: 390px) {
-  .topbar { gap: 8px; padding: 0 8px; }
+  .appbar { gap: 8px; padding: 0 8px; }
   .chips { gap: 4px; }
   .chip { padding: 3px 6px; }
   .chip-n { font-size: 13px; }

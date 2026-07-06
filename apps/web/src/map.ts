@@ -108,8 +108,16 @@ export class MapController {
     if (import.meta.env.DEV) {
       (window as unknown as { __mapctrl?: MapController }).__mapctrl = this;
     }
-    // Required OSM/CARTO attribution, collapsed to a compact ⓘ button by default.
-    this.map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+    // Basemap + data attribution, collapsed to a compact ⓘ button by default
+    // (expands on hover / focus / click). Basemap credit comes from the raster
+    // source; the data credits are added here.
+    this.map.addControl(
+      new maplibregl.AttributionControl({
+        compact: true,
+        customAttribution: "Data: EIA (transmission lines) · US Census (counties) · synthetic sample tickets",
+      }),
+      "bottom-right",
+    );
     this.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     this.map.addControl(this.homeControl(), "bottom-right");
     this.map.on("click", (e) => {
