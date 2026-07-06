@@ -58,7 +58,8 @@ export type SourceId =
   | "kmz"
   | "aoi"
   | "conflict"
-  | "conflict-highlight";
+  | "conflict-highlight"
+  | "cell-highlight";
 
 export type InspectHandler = (layerId: string, feature: MapGeoJSONFeature, lngLat: LngLat) => void;
 
@@ -88,6 +89,7 @@ export class MapController {
   private onInspectClick?: (e: maplibregl.MapMouseEvent) => void;
   private onInspectMove?: (e: maplibregl.MapMouseEvent) => void;
   private highlightRaf?: number;
+  private cellFlashRaf?: number;
   // Bounds of the loaded dataset, so the "zoom to data" control can re-home the view.
   private homeBounds?: [[number, number], [number, number]];
   // Observe the map container so CSS-driven size changes (rail collapse, drawer
@@ -159,7 +161,7 @@ export class MapController {
   /** Register empty sources + styled layers; data is pushed later via setData(). */
   initLayers() {
     const src = (id: SourceId) => this.map.addSource(id, { type: "geojson", data: EMPTY });
-    (["counties", "facilities", "tickets", "hex", "cells", "kmz", "aoi", "conflict", "conflict-highlight"] as SourceId[]).forEach(src);
+    (["counties", "facilities", "tickets", "hex", "cells", "kmz", "aoi", "conflict", "conflict-highlight", "cell-highlight"] as SourceId[]).forEach(src);
 
     this.map.addLayer({
       id: "counties-fill", type: "fill", source: "counties",
@@ -272,6 +274,19 @@ export class MapController {
       layout: { "line-cap": "round", "line-join": "round" },
       paint: { "line-color": "#fff2a8", "line-width": 6, "line-opacity": 1, "line-blur": 0.4 },
     });
+
+    // Transient pulse overlay for a picked H3 cell (map hex click or ranked-list row).
+    // Drawn on top so the flashed hex reads over the choropleth + ticket dots; starts
+    // invisible (opacity 0) until flashCell() animates it.
+    this.map.addLayer({
+      id: "cell-highlight-fill", type: "fill", source: "cell-highlight",
+      paint: { "fill-color": "#ffd166", "fill-opacity": 0 },
+    });
+    this.map.addLayer({
+      id: "cell-highlight-line", type: "line", source: "cell-highlight",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#ffd166", "line-width": 0, "line-opacity": 0 },
+    });
   }
 
   setData(id: SourceId, data: FeatureCollection) {
@@ -312,6 +327,43 @@ export class MapController {
     this.highlightRaf = requestAnimationFrame(tick);
   }
 
+  /**
+   * Briefly pulse a single H3 cell polygon on the map after it's picked (from a map
+   * hex click or the ranked-list row), so the selection is visible on the map. The
+   * overlay fades out and clears itself. Pass null to clear immediately.
+   */
+  flashCell(geom: Geometry | null) {
+    if (this.destroyed) return;
+    if (this.cellFlashRaf !== undefined) {
+      cancelAnimationFrame(this.cellFlashRaf);
+      this.cellFlashRaf = undefined;
+    }
+    const src = this.map.getSource("cell-highlight") as GeoJSONSource | undefined;
+    if (!geom) {
+      src?.setData(EMPTY);
+      return;
+    }
+    src?.setData({ type: "FeatureCollection", features: [{ type: "Feature", geometry: geom, properties: {} }] });
+    const DURATION = 1100; // ms — a couple of pulses, then fade out and clear
+    const start = performance.now();
+    const tick = (now: number) => {
+      if (this.destroyed || !this.map.getLayer("cell-highlight-line")) return;
+      const t = (now - start) / DURATION;
+      if (t >= 1) {
+        (this.map.getSource("cell-highlight") as GeoJSONSource | undefined)?.setData(EMPTY);
+        this.cellFlashRaf = undefined;
+        return;
+      }
+      const phase = (Math.sin(t * Math.PI * 3) + 1) / 2; // ~1.5 pulses across the duration
+      const fade = 1 - t; // overall fade to nothing
+      this.map.setPaintProperty("cell-highlight-line", "line-width", (2 + phase * 5) * fade);
+      this.map.setPaintProperty("cell-highlight-line", "line-opacity", (0.5 + phase * 0.5) * fade);
+      this.map.setPaintProperty("cell-highlight-fill", "fill-opacity", (0.1 + phase * 0.28) * fade);
+      this.cellFlashRaf = requestAnimationFrame(tick);
+    };
+    this.cellFlashRaf = requestAnimationFrame(tick);
+  }
+
   /** Recolor the facility lines to the live "our network" owner set — one
    *  setPaintProperty over the whole layer, no per-feature loop. */
   setRuleStyle(selfOwners: string[]) {
@@ -330,6 +382,7 @@ export class MapController {
   /** Show/hide the whole H3 conflict-index choropleth (fill + outline + hotspot). */
   setCellsVisible(visible: boolean) {
     for (const id of ["cells-fill", "cells-line", "cells-hotspot"]) this.setLayerVisible(id, visible);
+    if (!visible) this.flashCell(null); // drop any lingering pulse when leaving the altitude
   }
 
   /** Dim cells scoring below `threshold` (0..1 over score01) so the hot set stands out. */
@@ -516,6 +569,7 @@ export class MapController {
     this.destroyed = true;
     this.resizeObserver?.disconnect();
     if (this.highlightRaf !== undefined) cancelAnimationFrame(this.highlightRaf);
+    if (this.cellFlashRaf !== undefined) cancelAnimationFrame(this.cellFlashRaf);
     this.disableInspect();
     this.removeDragMarker();
     this.inspectPopup?.remove();

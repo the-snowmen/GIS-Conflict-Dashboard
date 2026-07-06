@@ -440,6 +440,15 @@ a { color: var(--accent); }
 .cell-row:hover, .cell-row:focus-visible { border-color: var(--accent); background: #20305a; outline: none; }
 .cell-row.active { border-color: var(--accent); background: #20305a; }
 .cell-row.hot { border-color: rgba(255, 209, 102, 0.55); }
+/* Brief attention pulse when a cell is picked (map hex click or list row) so the
+   selected row is obvious after the list scrolls it into view. */
+.cell-row.flash { animation: cell-row-flash 0.95s ease-out; }
+@keyframes cell-row-flash {
+  0%   { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent); }
+  60%  { box-shadow: 0 0 0 0 transparent; }
+  100% { background: #20305a; border-color: var(--accent); box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .cell-row.flash { animation: none; } }
 .cell-row-idx { font-weight: 650; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; }
 .hot-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; background: rgba(255,209,102,0.18); color: #ffd166; border-radius: 4px; padding: 1px 5px; }
 .cell-row-stats { display: flex; gap: 8px; font-size: 11px; color: var(--muted); }

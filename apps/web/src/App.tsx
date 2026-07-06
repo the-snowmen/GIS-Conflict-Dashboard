@@ -473,6 +473,7 @@ export default function App() {
       };
       c.setData("tickets", subset);
       c.map.flyTo({ center: cell.centroid, zoom: Math.max(c.map.getZoom(), 11), duration: 600 });
+      c.flashCell(cell.geometry); // pulse the picked hex so it's identifiable on the map
     },
     [tickets],
   );
