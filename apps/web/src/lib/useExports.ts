@@ -1,32 +1,27 @@
 import { useCallback, type RefObject } from "react";
 import type { FeatureCollection, Geometry } from "geojson";
 import {
-  conflictsToKmz,
   downloadBytes,
-  exportName,
-  ticketsToKmz,
+  ticketConflictToKmz,
   KMZ_MIME,
   type ExportAssumptions,
 } from "../services/export";
-import type { ConflictRule, MergedTicket } from "../services/demo";
+import type { ConflictRule } from "../services/demo";
 import type { MapController } from "../map";
 
 type LastResult = { geom: Geometry; facilities: FeatureCollection; via: string } | null;
 
-// The client-side KMZ exports + the AOI recenter. Exports bake in the rule/AOI "assumptions"
-// the last analysis ran under; `filteredTickets` is the currently visible ticket set.
+// The client-side per-ticket KMZ export + AOI recenter. Exports bake in the active rule.
 export function useExports({
   ctrl,
   lastResultRef,
   ruleRef,
   label,
-  filteredTickets,
 }: {
   ctrl: RefObject<MapController | null>;
   lastResultRef: RefObject<LastResult>;
   ruleRef: RefObject<ConflictRule | null>;
   label: string;
-  filteredTickets: MergedTicket[];
 }) {
   // The rule + AOI assumptions the last analysis was run under, baked into exports.
   const exportAssumptions = useCallback((): ExportAssumptions | undefined => {
@@ -43,15 +38,18 @@ export function useExports({
     c.fitTo({ type: "FeatureCollection", features: [{ type: "Feature", geometry: r.geom, properties: {} }] }, 120, 15);
   }, [ctrl, lastResultRef]);
 
-  const exportConflictKmz = useCallback(() => {
+  const exportConflictKmz = useCallback((ticket: {
+    ticket_id: string; source: string; work_type: string; priority: string; workflow_status: string;
+    conflict_count: number; lon: number; lat: number;
+  }) => {
     const r = lastResultRef.current;
     if (!r) return;
-    downloadBytes(exportName("conflicts", "kmz"), KMZ_MIME, conflictsToKmz(r.geom, r.facilities, exportAssumptions()));
+    const assumptions = exportAssumptions();
+    downloadBytes(
+      `gis-conflict_ticket_${ticket.ticket_id}_${new Date().toISOString().slice(0, 10)}.kmz`,
+      KMZ_MIME, ticketConflictToKmz(ticket, r.geom, r.facilities, assumptions),
+    );
   }, [lastResultRef, exportAssumptions]);
 
-  const exportTicketsKmz = useCallback(() => {
-    downloadBytes(exportName("tickets", "kmz"), KMZ_MIME, ticketsToKmz(filteredTickets));
-  }, [filteredTickets]);
-
-  return { exportAssumptions, recenterAoi, exportConflictKmz, exportTicketsKmz };
+  return { exportAssumptions, recenterAoi, exportConflictKmz };
 }

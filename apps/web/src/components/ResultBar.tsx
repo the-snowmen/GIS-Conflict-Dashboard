@@ -5,13 +5,11 @@ export default function ResultBar({
   conflict,
   canSaveAsTicket,
   onRecenter,
-  onExportKmz,
   onSaveAsTicket,
 }: {
   conflict: ConflictInfo;
   canSaveAsTicket: boolean;
   onRecenter: () => void;
-  onExportKmz: () => void;
   onSaveAsTicket: () => void;
 }) {
   return (
@@ -21,10 +19,10 @@ export default function ResultBar({
       ) : (
         <span>✓ <strong>no</strong> conflicts</span>
       )}
-      <span className="muted">· {conflict.jurisdiction ?? "outside the coverage area"} · {conflict.via}</span>
+      <span className="muted">· {conflict.jurisdiction ?? "outside the coverage area"}</span>
+      <span className="result-via">Analyzing: {conflict.via}</span>
       <span className="result-actions">
         <button className="btn-inline ghost" onClick={onRecenter} title="Re-center the map on this area">⌖ Locate</button>
-        <button className="btn-inline ghost" onClick={onExportKmz} title="Download buffer + conflicting facilities as KMZ (Google Earth)">⤓ KMZ</button>
         {canSaveAsTicket && (
           <button className="btn-inline" onClick={onSaveAsTicket}>＋ Save as ticket</button>
         )}

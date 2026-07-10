@@ -11,6 +11,9 @@ export interface EditingState {
   mode: "create" | "edit";
   ticket_id?: string;
   source: string;
+  work_type: "locate" | "design" | "survey" | "permit";
+  priority: "low" | "normal" | "high";
+  workflow_status: "new" | "in_review" | "resolved";
   lon: number;
   lat: number;
   lon0: number; // original position, to detect a move
@@ -27,7 +30,9 @@ export interface ConflictInfo {
 export interface TicketInfo {
   ticket_id: string;
   source: string;
-  status: string;
+  work_type: string;
+  priority: string;
+  workflow_status: string;
   county: string | null;
   storedCount: number;
   liveCount: number;
@@ -42,8 +47,11 @@ export interface TicketInfo {
 // the approximate distance from the analyzed point to the facility.
 export interface ConflictFacility {
   id?: number;
+  asset_ref?: string;
   owner?: string;
   voltage_class?: string;
+  nominal_kv?: number;
+  asset_type?: string;
   status?: string;
   geometry?: Geometry;
   dist_m?: number;
@@ -57,6 +65,10 @@ export interface RulePreset {
 }
 
 // Minimal ticket shape shared by map-click (feature.properties) and the sidebar list.
-export type TicketLike = { ticket_id: string; source: string; status: string; conflict_count: number };
+export type TicketLike = { ticket_id: string; source: string; intake_conflict_count: number; conflict_count: number };
 // Just what startEdit needs (satisfied by MergedTicket and by the detail panel).
-export type EditableTicket = { ticket_id: string; source: string; status: string; lon: number; lat: number };
+export type EditableTicket = {
+  ticket_id: string; source: string; work_type: "locate" | "design" | "survey" | "permit";
+  priority: "low" | "normal" | "high"; workflow_status: "new" | "in_review" | "resolved";
+  lon: number; lat: number;
+};

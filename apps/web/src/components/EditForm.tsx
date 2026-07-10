@@ -8,6 +8,9 @@ export default function EditForm({
   radius,
   conflict,
   onChangeSource,
+  onChangeWorkType,
+  onChangePriority,
+  onChangeWorkflowStatus,
   onSave,
   onDelete,
   onCancel,
@@ -17,6 +20,9 @@ export default function EditForm({
   radius: number;
   conflict: ConflictInfo | null;
   onChangeSource: (value: string) => void;
+  onChangeWorkType: (value: EditingState["work_type"]) => void;
+  onChangePriority: (value: EditingState["priority"]) => void;
+  onChangeWorkflowStatus: (value: EditingState["workflow_status"]) => void;
   onSave: () => void;
   onDelete: () => void;
   onCancel: () => void;
@@ -41,6 +47,21 @@ export default function EditForm({
           <option key={s} value={s} />
         ))}
       </datalist>
+      <label className="fld">Work type
+        <select value={editing.work_type} onChange={(e) => onChangeWorkType(e.target.value as EditingState["work_type"])}>
+          <option value="locate">locate</option><option value="design">design</option><option value="survey">survey</option><option value="permit">permit</option>
+        </select>
+      </label>
+      <label className="fld">Priority
+        <select value={editing.priority} onChange={(e) => onChangePriority(e.target.value as EditingState["priority"])}>
+          <option value="high">high</option><option value="normal">normal</option><option value="low">low</option>
+        </select>
+      </label>
+      <label className="fld">Workflow
+        <select value={editing.workflow_status} onChange={(e) => onChangeWorkflowStatus(e.target.value as EditingState["workflow_status"])}>
+          <option value="new">new</option><option value="in_review">in review</option><option value="resolved">resolved</option>
+        </select>
+      </label>
       <div className="fld">
         Status <span className="auto-tag">auto</span>
         <div className={`derived ${conflict && conflict.count > 0 ? "conflict" : "clear"}`}>

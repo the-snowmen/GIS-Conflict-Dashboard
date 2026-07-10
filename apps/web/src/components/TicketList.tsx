@@ -19,7 +19,7 @@ export default function TicketList({
         <div key={t.ticket_id} className="tk-card">
           <button
             className="tk-main"
-            aria-label={`Ticket ${t.ticket_id}, source ${t.source || "none"}, ${
+            aria-label={`Ticket ${t.ticket_id}, ${t.work_type} work, ${t.priority} priority, ${
               t.conflict_count > 0
                 ? `${t.conflict_count} potential conflict${t.conflict_count === 1 ? "" : "s"}`
                 : "no conflict"
@@ -30,7 +30,7 @@ export default function TicketList({
               {t.ticket_id}
               {t.origin === "user" && <span className="tag">user</span>}
             </span>
-            <span className="meta">{t.source}</span>
+            <span className="meta">{t.work_type} · {t.priority} · {t.workflow_status}</span>
           </button>
           <span className="tk-foot">
             <span className={`pill ${t.conflict_count > 0 ? "conflict" : "clear"}`}>

@@ -53,27 +53,22 @@ export default function CellControls({ weights, onWeights, res, onRes, threshold
         ))}
       </div>
 
-      <div className="rule-lbl muted">Weights (what makes a cell “hot”)</div>
-      <WeightRow label="Ticket volume" value={weights.demand} onChange={(demand) => onWeights({ demand })} />
-      <WeightRow label="Conflict rate" value={weights.rate} onChange={(rate) => onWeights({ rate })} />
-      <WeightRow label="Mean severity" value={weights.severity} onChange={(severity) => onWeights({ severity })} />
-      <WeightRow label="Facility density" value={weights.infra} onChange={(infra) => onWeights({ infra })} />
-
-      <div className="rule-lbl muted">Normalization</div>
-      <div className="chip-toggles" role="group" aria-label="Normalization method">
-        {(["z", "minmax"] as const).map((n) => (
-          <button
-            key={n}
-            type="button"
-            className={`chip-toggle${weights.norm === n ? " on" : ""}`}
-            aria-pressed={weights.norm === n}
-            onClick={() => onWeights({ norm: n })}
-            title={n === "z" ? "z-score (robust to scale)" : "min-max (0..1 per feature)"}
-          >
-            {n === "z" ? "z-score" : "min-max"}
-          </button>
-        ))}
-      </div>
+      <details className="cell-advanced">
+        <summary>Advanced scoring controls</summary>
+        <div className="rule-lbl muted">Weights (what makes a cell “hot”)</div>
+        <WeightRow label="Ticket volume" value={weights.demand} onChange={(demand) => onWeights({ demand })} />
+        <WeightRow label="Conflict rate" value={weights.rate} onChange={(rate) => onWeights({ rate })} />
+        <WeightRow label="Mean severity" value={weights.severity} onChange={(severity) => onWeights({ severity })} />
+        <WeightRow label="Facility density" value={weights.infra} onChange={(infra) => onWeights({ infra })} />
+        <div className="rule-lbl muted">Normalization</div>
+        <div className="chip-toggles" role="group" aria-label="Normalization method">
+          {(["z", "minmax"] as const).map((n) => (
+            <button key={n} type="button" className={`chip-toggle${weights.norm === n ? " on" : ""}`} aria-pressed={weights.norm === n} onClick={() => onWeights({ norm: n })} title={n === "z" ? "z-score (robust to scale)" : "min-max (0..1 per feature)"}>
+              {n === "z" ? "z-score" : "min-max"}
+            </button>
+          ))}
+        </div>
+      </details>
 
       <div className="rule-lbl muted">
         Highlight cells scoring ≥ <b>{threshold.toFixed(2)}</b>

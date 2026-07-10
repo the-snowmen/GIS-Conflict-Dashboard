@@ -1,29 +1,37 @@
-// Client-side ticket mutations layered over the immutable parquet baseline.
-// The baseline tickets ship in ticket.parquet and are never modified; user
-// creates/edits/deletes live here in localStorage and are merged at read time.
-// Clearing browser storage therefore restores the original dataset.
+// Browser-local ticket mutations layered over the immutable GeoParquet baseline.
+// This is intentionally scenario-only state: clearing browser storage restores the demo.
 
-const KEY = "gcd.tickets.overlay.v1";
-const VERSION = 1;
+const KEY = "gcd.tickets.overlay.v2";
+const LEGACY_KEY = "gcd.tickets.overlay.v1";
+const VERSION = 2;
+
+export type Priority = "low" | "normal" | "high";
+export type WorkflowStatus = "new" | "in_review" | "resolved";
+export type WorkType = "locate" | "design" | "survey" | "permit";
 
 export interface OverlayTicket {
   ticket_id: string;
   source: string;
-  status: string;
-  conflict_count: number;
+  work_type: WorkType;
+  priority: Priority;
+  workflow_status: WorkflowStatus;
+  intake_conflict_count: number;
   radius_m: number;
   lon: number;
   lat: number;
   county_geoid: string | null;
-  created_at: string; // ISO "YYYY-MM-DD"
+  created_at: string;
   origin: "user";
 }
 
-// A baseline row merged with any overlay overrides, or a user-created row.
 export interface MergedTicket {
   ticket_id: string;
   source: string;
-  status: string;
+  work_type: WorkType;
+  priority: Priority;
+  workflow_status: WorkflowStatus;
+  intake_conflict_count: number;
+  /** Runtime evidence projection; initialized from intake and replaced by the active rule. */
   conflict_count: number;
   lon: number;
   lat: number;
@@ -42,111 +50,124 @@ interface Overlay {
 
 const empty = (): Overlay => ({ v: VERSION, added: [], edited: {}, deleted: [] });
 
-// Parse + validate; any corruption or version mismatch falls back to empty
-// (which is also what guarantees "clear storage -> baseline").
-export function loadOverlay(): Overlay {
+function workTypeForSource(source: string): WorkType {
+  switch (source) {
+    case "811_locate": return "locate";
+    case "design_review": return "design";
+    case "field_survey": return "survey";
+    default: return "permit";
+  }
+}
+
+function priorityForCount(n: number): Priority {
+  return n >= 3 ? "high" : n >= 1 ? "normal" : "low";
+}
+
+function validOverlay(o: Partial<Overlay>): o is Overlay {
+  return o.v === VERSION && Array.isArray(o.added) && Array.isArray(o.deleted) && typeof o.edited === "object";
+}
+
+function migrateLegacy(): Overlay {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(LEGACY_KEY);
     if (!raw) return empty();
-    const o = JSON.parse(raw) as Partial<Overlay>;
-    if (o?.v !== VERSION || !Array.isArray(o.added) || !Array.isArray(o.deleted) || typeof o.edited !== "object") {
-      return empty();
-    }
-    return { v: VERSION, added: o.added, edited: o.edited ?? {}, deleted: o.deleted };
+    const legacy = JSON.parse(raw) as {
+      added?: Array<Record<string, unknown>>;
+      edited?: Record<string, Record<string, unknown>>;
+      deleted?: string[];
+    };
+    const convert = (row: Record<string, unknown>): OverlayTicket => {
+      const count = Number(row.conflict_count ?? 0);
+      const source = String(row.source ?? "permit");
+      return {
+        ticket_id: String(row.ticket_id), source, work_type: workTypeForSource(source),
+        priority: priorityForCount(count), workflow_status: "new",
+        intake_conflict_count: count, radius_m: Number(row.radius_m ?? 100),
+        lon: Number(row.lon), lat: Number(row.lat), county_geoid: row.county_geoid == null ? null : String(row.county_geoid),
+        created_at: String(row.created_at ?? new Date().toISOString().slice(0, 10)), origin: "user",
+      };
+    };
+    const migrated: Overlay = {
+      v: VERSION,
+      added: (legacy.added ?? []).map(convert),
+      edited: Object.fromEntries(Object.entries(legacy.edited ?? {}).map(([id, row]) => {
+        const source = row.source == null ? undefined : String(row.source);
+        const count = Number(row.conflict_count ?? 0);
+        return [id, {
+          ...(source ? { source, work_type: workTypeForSource(source) } : {}),
+          workflow_status: "new" as const,
+          ...(row.conflict_count == null ? {} : { intake_conflict_count: count, priority: priorityForCount(count) }),
+          ...(row.lon == null ? {} : { lon: Number(row.lon) }),
+          ...(row.lat == null ? {} : { lat: Number(row.lat) }),
+          ...(row.radius_m == null ? {} : { radius_m: Number(row.radius_m) }),
+          ...(row.county_geoid == null ? {} : { county_geoid: String(row.county_geoid) }),
+        }];
+      })),
+      deleted: legacy.deleted ?? [],
+    };
+    localStorage.setItem(KEY, JSON.stringify(migrated));
+    localStorage.removeItem(LEGACY_KEY);
+    return migrated;
   } catch {
     return empty();
   }
 }
 
-export function saveOverlay(o: Overlay): void {
+export function loadOverlay(): Overlay {
   try {
-    localStorage.setItem(KEY, JSON.stringify(o));
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return migrateLegacy();
+    const o = JSON.parse(raw) as Partial<Overlay>;
+    return validOverlay(o) ? o : empty();
   } catch {
-    // Quota exceeded / private mode: keep the in-memory overlay working for the
-    // session; persistence just won't survive a reload.
-    console.warn("[overlay] could not persist ticket changes to localStorage");
+    return empty();
   }
+}
+
+function saveOverlay(o: Overlay): void {
+  try { localStorage.setItem(KEY, JSON.stringify(o)); }
+  catch { console.warn("[overlay] could not persist ticket changes to localStorage"); }
 }
 
 let cache: Overlay | null = null;
-function getOverlay(): Overlay {
-  return (cache ??= loadOverlay());
-}
-function commit(o: Overlay): void {
-  cache = o;
-  saveOverlay(o);
-}
+function getOverlay(): Overlay { return (cache ??= loadOverlay()); }
+function commit(o: Overlay): void { cache = o; saveOverlay(o); }
 
-export function resetOverlay(): void {
-  cache = empty();
-  try {
-    localStorage.removeItem(KEY);
-  } catch {
-    /* ignore */
-  }
-}
+export function isUserTicket(id: string): boolean { return id.startsWith("USR-"); }
 
-export function isUserTicket(id: string): boolean {
-  return id.startsWith("USR-");
-}
-
-// "USR-" prefix can never collide with baseline "AUS-…" ids; guard only against
-// other user rows in the (astronomically rare) timestamp+random clash.
 export function nextTicketId(): string {
-  const o = getOverlay();
-  const taken = new Set(o.added.map((t) => t.ticket_id));
+  const taken = new Set(getOverlay().added.map((t) => t.ticket_id));
   let id = "";
-  do {
-    const rand = Math.floor(Math.random() * 1296).toString(36).padStart(2, "0");
-    id = `USR-${Date.now().toString(36)}${rand}`;
-  } while (taken.has(id));
+  do id = `USR-${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, "0")}`;
+  while (taken.has(id));
   return id;
 }
 
 export function addTicket(t: OverlayTicket): void {
   const o = getOverlay();
-  o.added.push(t);
-  // A previously-deleted id being re-added should resurface.
-  o.deleted = o.deleted.filter((d) => d !== t.ticket_id);
-  commit(o);
+  o.added.push(t); o.deleted = o.deleted.filter((d) => d !== t.ticket_id); commit(o);
 }
 
-export function editTicket(ticket_id: string, patch: Partial<OverlayTicket>, isBaseline: boolean): void {
+export function editTicket(ticketId: string, patch: Partial<OverlayTicket>, isBaseline: boolean): void {
   const o = getOverlay();
-  if (isBaseline) {
-    o.edited[ticket_id] = { ...o.edited[ticket_id], ...patch };
-  } else {
-    const row = o.added.find((t) => t.ticket_id === ticket_id);
-    if (row) Object.assign(row, patch);
-  }
+  if (isBaseline) o.edited[ticketId] = { ...o.edited[ticketId], ...patch };
+  else Object.assign(o.added.find((t) => t.ticket_id === ticketId) ?? {}, patch);
   commit(o);
 }
 
-export function moveTicket(ticket_id: string, patch: Partial<OverlayTicket>, isBaseline: boolean): void {
-  editTicket(ticket_id, patch, isBaseline);
-}
-
-export function deleteTicket(ticket_id: string, isBaseline: boolean): void {
+export function deleteTicket(ticketId: string, isBaseline: boolean): void {
   const o = getOverlay();
-  o.added = o.added.filter((t) => t.ticket_id !== ticket_id);
-  delete o.edited[ticket_id];
-  if (isBaseline && !o.deleted.includes(ticket_id)) o.deleted.push(ticket_id);
+  o.added = o.added.filter((t) => t.ticket_id !== ticketId);
+  delete o.edited[ticketId];
+  if (isBaseline && !o.deleted.includes(ticketId)) o.deleted.push(ticketId);
   commit(o);
 }
 
-// Apply added / edited / deleted onto a baseline list. Never mutates the input.
 export function mergeRows(baseline: MergedTicket[]): MergedTicket[] {
   const o = getOverlay();
   const deleted = new Set(o.deleted);
-  const out: MergedTicket[] = [];
-  for (const b of baseline) {
-    if (deleted.has(b.ticket_id)) continue;
-    const patch = o.edited[b.ticket_id];
-    out.push(patch ? { ...b, ...patch } : b);
-  }
-  for (const a of o.added) {
-    if (deleted.has(a.ticket_id)) continue;
-    out.push({ ...a });
-  }
-  return out;
+  return [
+    ...baseline.filter((b) => !deleted.has(b.ticket_id)).map((b) => ({ ...b, ...o.edited[b.ticket_id] })),
+    ...o.added.filter((a) => !deleted.has(a.ticket_id)).map((a) => ({ ...a, conflict_count: a.intake_conflict_count })),
+  ];
 }

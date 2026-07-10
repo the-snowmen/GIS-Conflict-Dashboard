@@ -18,12 +18,15 @@ export default function RankedCellsPanel({
   return (
     <>
       <div className="left-head">
-        <h2 className="left-title">Ranked cells</h2>
+        <div>
+          <h2 className="left-title">H3 screening</h2>
+          <p className="panel-subtitle">Screen cells, then drill into ticket evidence.</p>
+        </div>
       </div>
       {drillCellId && (
         <div className="cell-drill">
-          Drilled into cell <code>{drillCellId.slice(0, 7)}…</code>
-          <button type="button" onClick={onClearDrill}>clear</button>
+          Screening cell <code>{drillCellId.slice(0, 7)}…</code>
+          <button type="button" onClick={onClearDrill}>return to screening</button>
         </div>
       )}
       {loading ? (

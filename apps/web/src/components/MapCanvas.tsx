@@ -15,7 +15,6 @@ export default function MapCanvas({
   onDismissWelcome,
   canSaveAsTicket,
   onRecenter,
-  onExportKmz,
   onSaveAsTicket,
 }: {
   mapRef: Ref<HTMLDivElement>;
@@ -26,7 +25,6 @@ export default function MapCanvas({
   onDismissWelcome: () => void;
   canSaveAsTicket: boolean;
   onRecenter: () => void;
-  onExportKmz: () => void;
   onSaveAsTicket: () => void;
 }) {
   return (
@@ -38,7 +36,6 @@ export default function MapCanvas({
           conflict={conflict}
           canSaveAsTicket={canSaveAsTicket}
           onRecenter={onRecenter}
-          onExportKmz={onExportKmz}
           onSaveAsTicket={onSaveAsTicket}
         />
       )}

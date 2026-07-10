@@ -11,7 +11,10 @@ export function rowsForLayer(layerId: string, props: Record<string, unknown>): {
       return {
         title: "Transmission line",
         rows: keep([
+          ["Asset", s(props.asset_ref)],
+          ["Type", s(props.asset_type)],
           ["Owner", s(props.owner)],
+          ["Nominal kV", s(props.nominal_kv)],
           ["Voltage", s(props.voltage_class)],
           ["Status", s(props.status)],
           ["ID", s(props.id)],

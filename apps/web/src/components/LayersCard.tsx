@@ -38,7 +38,7 @@ export default function LayersCard({
       />
       {kmzName && (
         <div className="kmz-loaded">
-          <span className="muted">{kmzName}</span>
+          <span className="muted">{kmzName} · select a feature on the map to analyze it</span>
           <button className="mini" onClick={onClearKmz} title="Remove the imported layer">✕ Remove</button>
         </div>
       )}

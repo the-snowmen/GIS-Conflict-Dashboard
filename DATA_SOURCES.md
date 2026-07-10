@@ -20,6 +20,9 @@ python scripts/build_demo_db.py --metro austin
 - **License:** Public domain. The public layer's access restriction is *"None (Public Use)"*, and EIA
   characterizes the underlying HIFLD data it republishes as *"public domain information."* No
   attribution is required (courtesy credit only).
+- **Attributes:** Each demo feature receives a stable neutral `asset_ref` (`TX-AUS-####`), while
+  `asset_type`, `nominal_kv`, and `voltage_class` come from the public source. The reference is a
+  display identifier only, not an operational asset record.
 - **Note:** HIFLD's public "HIFLD Open" portal was discontinued in 2025; this layer remains publicly
   available via the EIA U.S. Energy Atlas and agency ArcGIS mirrors. There is **no** free public-domain
   U.S. fiber-route dataset, so real electric-transmission geometry stands in as the "utility facility"
@@ -37,9 +40,10 @@ python scripts/build_demo_db.py --metro austin
 ## Tickets & AOIs — `ticket.parquet`, `aoi.parquet`
 
 - **Fully fabricated** by the build script. Work points are sampled on/near the public transmission
-  lines, given synthetic ids/sources/statuses/dates, buffered into AOI polygons (geodesic meters via a
+  lines, given synthetic ids/sources/work types/priorities/workflow states/dates, buffered into AOI polygons (geodesic meters via a
   UTM round-trip), and conflict-scored by a generic owner/status rule. No real permit, ticket, or
-  customer data is used. The conflict rule lives in [`data/demo_config.json`](data/demo_config.json).
+  customer data is used. `intake_conflict_count` is the stored intake snapshot; the browser derives
+  live conflict evidence under the active rule. The conflict rule lives in [`data/demo_config.json`](data/demo_config.json).
 
 ## Libraries / specifications
 

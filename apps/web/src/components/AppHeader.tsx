@@ -56,7 +56,12 @@ export default function AppHeader({
         </div>
       </div>
       <ModeToggle altitude={altitude} onAltitude={onAltitude} />
-      {stats && <StatChips stats={{ ...stats, conflicts: flaggedCount }} />}
+      {stats && (isMobile ? (
+        <details className="header-summary">
+          <summary>{flaggedCount.toLocaleString()} flagged</summary>
+          <StatChips stats={{ ...stats, conflicts: flaggedCount }} />
+        </details>
+      ) : <StatChips stats={{ ...stats, conflicts: flaggedCount }} />)}
       <button
         className="rail-toggle help-btn"
         onClick={onOpenHelp}

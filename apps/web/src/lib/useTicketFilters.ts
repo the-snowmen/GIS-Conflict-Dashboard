@@ -7,15 +7,17 @@ import type { MergedTicket } from "../services/demo";
 export function useTicketFilters(viewTickets: MergedTicket[], tickets: MergedTicket[]) {
   const [tq, setTq] = useState("");
   const [fSource, setFSource] = useState("");
-  const [fStatus, setFStatus] = useState("");
+  const [fWorkflowStatus, setFWorkflowStatus] = useState("");
+  const [fPriority, setFPriority] = useState("");
+  const [fWorkType, setFWorkType] = useState("");
   const [fMinConflicts, setFMinConflicts] = useState(0);
 
   const sourceOptions = useMemo(
     () => [...new Set(tickets.map((t) => t.source).filter(Boolean))].sort(),
     [tickets],
   );
-  const statusFilterOptions = useMemo(
-    () => [...new Set(tickets.map((t) => t.status).filter(Boolean))].sort(),
+  const workflowStatusOptions = useMemo(
+    () => [...new Set(tickets.map((t) => t.workflow_status).filter(Boolean))].sort(),
     [tickets],
   );
   const filteredTickets = useMemo(() => {
@@ -24,24 +26,30 @@ export function useTicketFilters(viewTickets: MergedTicket[], tickets: MergedTic
       .filter((t) => {
         if (query && !`${t.ticket_id} ${t.source}`.toLowerCase().includes(query)) return false;
         if (fSource && t.source !== fSource) return false;
-        if (fStatus && t.status !== fStatus) return false;
+        if (fWorkflowStatus && t.workflow_status !== fWorkflowStatus) return false;
+        if (fPriority && t.priority !== fPriority) return false;
+        if (fWorkType && t.work_type !== fWorkType) return false;
         if (fMinConflicts && t.conflict_count < fMinConflicts) return false;
         return true;
       })
       .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
-  }, [viewTickets, tq, fSource, fStatus, fMinConflicts]);
+  }, [viewTickets, tq, fSource, fWorkflowStatus, fPriority, fWorkType, fMinConflicts]);
 
   return {
     tq,
     setTq,
     fSource,
     setFSource,
-    fStatus,
-    setFStatus,
+    fWorkflowStatus,
+    setFWorkflowStatus,
+    fPriority,
+    setFPriority,
+    fWorkType,
+    setFWorkType,
     fMinConflicts,
     setFMinConflicts,
     sourceOptions,
-    statusFilterOptions,
+    workflowStatusOptions,
     filteredTickets,
   };
 }

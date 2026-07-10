@@ -3,8 +3,8 @@ export default function WelcomeCallout({ onDismiss }: { onDismiss: () => void })
   return (
     <div className="welcome">
       <span>
-        Find work tickets that conflict with transmission lines — <strong>click a ticket below</strong> to
-        start, or drop a <strong>Buffer point</strong>.
+        Start with <strong>H3 screening</strong> to find priority work clusters, then drill into ticket
+        evidence — or import a <strong>KMZ / KML AOI</strong>.
       </span>
       <button className="welcome-x" aria-label="Dismiss" onClick={onDismiss}>
         ✕

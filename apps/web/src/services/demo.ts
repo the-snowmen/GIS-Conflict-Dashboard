@@ -27,7 +27,7 @@ export interface DemoConfig {
   label: string;
   selfOwners: string[];
   excludedFacilityStatuses: string[];
-  ticketStatuses: string[];
+  ticketWorkflowStatuses: string[];
 }
 
 // The conflict rule as a tunable "opinion": which facilities count as ours (owners)
@@ -77,7 +77,7 @@ const sqlString = (s: string) => `'${s.replace(/'/g, "''")}'`;
 export async function facilitiesLayer(): Promise<FeatureCollection> {
   return toFC(
     await q<GeomRow>(
-      `SELECT id, owner, voltage_class, status,
+      `SELECT id, asset_ref, owner, voltage_class, nominal_kv, asset_type, status,
               ST_AsGeoJSON(ST_GeomFromWKB(geom)) AS gj
        FROM read_parquet('facility.parquet')`,
     ),
@@ -97,8 +97,10 @@ export async function countiesLayer(): Promise<FeatureCollection> {
 type BaselineTicketRow = {
   ticket_id: string;
   source: string;
-  status: string;
-  conflict_count: number;
+  work_type: MergedTicket["work_type"];
+  priority: MergedTicket["priority"];
+  workflow_status: MergedTicket["workflow_status"];
+  intake_conflict_count: number;
   county_geoid: string | null;
   lon: number;
   lat: number;
@@ -109,15 +111,18 @@ type BaselineTicketRow = {
 let baselinePromise: Promise<MergedTicket[]> | null = null;
 function baselineTickets(): Promise<MergedTicket[]> {
   return (baselinePromise ??= q<BaselineTicketRow>(
-    `SELECT ticket_id, source, status, conflict_count, county_geoid, lon, lat,
+    `SELECT ticket_id, source, work_type, priority, workflow_status, intake_conflict_count, county_geoid, lon, lat,
             CAST(created_at AS VARCHAR) AS created_at
      FROM read_parquet('ticket.parquet')`,
   ).then((rows) =>
     rows.map((r) => ({
       ticket_id: r.ticket_id,
       source: r.source,
-      status: r.status,
-      conflict_count: Number(r.conflict_count), // BIGINT -> Number (MapLibre drops BigInt props)
+      work_type: r.work_type,
+      priority: r.priority,
+      workflow_status: r.workflow_status,
+      intake_conflict_count: Number(r.intake_conflict_count),
+      conflict_count: Number(r.intake_conflict_count),
       county_geoid: r.county_geoid,
       lon: Number(r.lon),
       lat: Number(r.lat),
@@ -141,7 +146,10 @@ export function ticketsToFC(rows: MergedTicket[]): FeatureCollection {
       properties: {
         ticket_id: r.ticket_id,
         source: r.source,
-        status: r.status,
+        work_type: r.work_type,
+        priority: r.priority,
+        workflow_status: r.workflow_status,
+        intake_conflict_count: Number(r.intake_conflict_count),
         conflict_count: Number(r.conflict_count),
         county_geoid: r.county_geoid,
         origin: r.origin,
@@ -187,7 +195,7 @@ export async function stats(): Promise<Stats> {
   return {
     facilities: Number(agg.facilities),
     tickets: merged.length,
-    conflicts: merged.filter((t) => t.conflict_count > 0).length,
+    conflicts: merged.filter((t) => t.intake_conflict_count > 0).length,
     counties,
   };
 }
@@ -215,7 +223,7 @@ export async function conflictForAoi(aoi: Geometry, rule?: ConflictRule): Promis
   const aoiJson = sqlString(JSON.stringify(aoi));
   const rows = await q<GeomRow>(
     `WITH aoi AS (SELECT ST_GeomFromGeoJSON(${aoiJson}) AS g)
-     SELECT f.id, f.owner, f.voltage_class, f.status,
+     SELECT f.id, f.asset_ref, f.owner, f.voltage_class, f.nominal_kv, f.asset_type, f.status,
             ST_AsGeoJSON(ST_GeomFromWKB(f.geom)) AS gj
      FROM read_parquet('facility.parquet') f, aoi
      WHERE f.owner IN (${owners})
@@ -225,15 +233,16 @@ export async function conflictForAoi(aoi: Geometry, rule?: ConflictRule): Promis
   return { count: rows.length, facilities: toFC(rows) };
 }
 
-/** Per-ticket conflict count under a live rule, across ALL baseline tickets, using each
- *  ticket's recorded buffer polygon (aoi.parquet) intersected with the facilities matching
- *  the rule. Under the default rule this reproduces the stored intake `conflict_count`
- *  exactly; toggling owners/statuses moves it. Returns only tickets with count > 0. */
-export async function liveTicketConflictCounts(rule?: ConflictRule): Promise<Map<string, number>> {
+/** Per-ticket conflict evidence under the active rule. Baseline tickets use their stored
+ * AOIs in one spatial SQL join; browser-local tickets are buffered and checked in-browser. */
+export async function liveTicketConflictCounts(
+  tickets: MergedTicket[],
+  rule?: ConflictRule,
+): Promise<Map<string, number>> {
   const cfg = await config();
   const selfOwners = rule?.selfOwners ?? cfg.selfOwners;
   const excludedStatuses = rule?.excludedStatuses ?? cfg.excludedFacilityStatuses;
-  if (selfOwners.length === 0) return new Map(); // nothing is "ours" -> no conflicts
+  if (selfOwners.length === 0) return new Map();
   const owners = selfOwners.map(sqlString).join(",");
   const exclClause = excludedStatuses.length
     ? `AND f.status NOT IN (${excludedStatuses.map(sqlString).join(",")})`
@@ -246,7 +255,13 @@ export async function liveTicketConflictCounts(rule?: ConflictRule): Promise<Map
        AND ST_Intersects(ST_GeomFromWKB(a.geom), ST_GeomFromWKB(f.geom))
      GROUP BY a.ticket_id`,
   );
-  return new Map(rows.map((r) => [r.ticket_id, Number(r.n)]));
+  const counts = new Map(rows.map((r) => [r.ticket_id, Number(r.n)]));
+  await Promise.all(tickets.filter((t) => t.origin === "user").map(async (t) => {
+    const radius = t.radius_m ?? 100;
+    const { count } = await conflictForAoi(bufferPoint(t.lon, t.lat, radius), rule);
+    counts.set(t.ticket_id, count);
+  }));
+  return counts;
 }
 
 // Distinct owners/statuses in the facility table (read once) to seed the rule chips.
@@ -288,30 +303,41 @@ async function countyAt(lng: number, lat: number): Promise<{ geoid: string; name
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 // Live conflict count for a point at a given radius, via geokit buffer + ST_Intersects.
-async function conflictCountAt(lon: number, lat: number, radiusM: number): Promise<number> {
-  const { count } = await conflictForAoi(bufferPoint(lon, lat, radiusM));
+async function conflictCountAt(lon: number, lat: number, radiusM: number, rule?: ConflictRule): Promise<number> {
+  const { count } = await conflictForAoi(bufferPoint(lon, lat, radiusM), rule);
   return count;
 }
 
-// A ticket's status is its conflict state — derived from the count, not user-chosen
-// (matches how baseline tickets are scored in build_demo_db.py).
-const deriveStatus = (n: number): string => (n > 0 ? "potential_conflict" : "no_conflict");
+const workTypeForSource = (source: string): OverlayTicket["work_type"] => {
+  switch (source) {
+    case "811_locate": return "locate";
+    case "design_review": return "design";
+    case "field_survey": return "survey";
+    default: return "permit";
+  }
+};
+const priorityForCount = (n: number): OverlayTicket["priority"] => n >= 3 ? "high" : n >= 1 ? "normal" : "low";
 
 export interface CreateTicketInput {
   source: string;
+  work_type: OverlayTicket["work_type"];
+  priority: OverlayTicket["priority"];
+  workflow_status: OverlayTicket["workflow_status"];
   lon: number;
   lat: number;
   radiusM: number;
 }
 
 export async function createTicket(input: CreateTicketInput): Promise<MergedTicket> {
-  const conflict_count = await conflictCountAt(input.lon, input.lat, input.radiusM);
+  const intake_conflict_count = await conflictCountAt(input.lon, input.lat, input.radiusM);
   const county = await countyAt(input.lon, input.lat);
   const t: OverlayTicket = {
     ticket_id: nextTicketId(),
     source: input.source,
-    status: deriveStatus(conflict_count),
-    conflict_count,
+    work_type: input.work_type ?? workTypeForSource(input.source),
+    priority: input.priority ?? priorityForCount(intake_conflict_count),
+    workflow_status: input.workflow_status ?? "new",
+    intake_conflict_count,
     radius_m: input.radiusM,
     lon: input.lon,
     lat: input.lat,
@@ -320,30 +346,35 @@ export async function createTicket(input: CreateTicketInput): Promise<MergedTick
     origin: "user",
   };
   addTicket(t);
-  return { ...t };
+  return { ...t, conflict_count: intake_conflict_count };
 }
 
 export interface UpdateTicketPatch {
   source?: string;
+  work_type?: OverlayTicket["work_type"];
+  priority?: OverlayTicket["priority"];
+  workflow_status?: OverlayTicket["workflow_status"];
   lon?: number;
   lat?: number;
 }
 
-/** Update fields and/or move a ticket. Conflict count (and the derived status) is
- *  recomputed only when the point moves (the facility set is static, so field edits
- *  can't change it). */
+/** Update analyst workflow fields and/or move a ticket. Intake evidence is recomputed only
+ * when the geometry moves; live evidence remains derived from the active conflict rule. */
 export async function updateTicket(
   ticket_id: string,
   patch: UpdateTicketPatch,
   radiusM: number,
 ): Promise<void> {
   const moved = patch.lon !== undefined && patch.lat !== undefined;
-  const full: Partial<OverlayTicket> = { source: patch.source };
+  const full: Partial<OverlayTicket> = {
+    source: patch.source, work_type: patch.work_type, priority: patch.priority,
+    workflow_status: patch.workflow_status,
+  };
   if (moved) {
     full.lon = patch.lon;
     full.lat = patch.lat;
-    full.conflict_count = await conflictCountAt(patch.lon!, patch.lat!, radiusM);
-    full.status = deriveStatus(full.conflict_count);
+    const intakeCount = await conflictCountAt(patch.lon!, patch.lat!, radiusM);
+    full.intake_conflict_count = intakeCount;
     full.radius_m = radiusM;
     full.county_geoid = (await countyAt(patch.lon!, patch.lat!))?.geoid ?? null;
   }
@@ -360,6 +391,11 @@ export function bufferPoint(lng: number, lat: number, meters: number): Geometry 
   const gk = getGeokit();
   const pt = JSON.stringify({ type: "Point", coordinates: [lng, lat] });
   return JSON.parse(gk.buffer_geojson(pt, meters, 8)) as Geometry;
+}
+
+/** Buffer a point or line import into an AOI using the same geodesic WASM path. */
+export function bufferGeometry(geom: Geometry, meters: number): Geometry {
+  return JSON.parse(getGeokit().buffer_geojson(JSON.stringify(geom), meters, 8)) as Geometry;
 }
 
 /** Per-hex ticket density (FeatureCollection) at an H3 resolution, via geokit H3. */
@@ -462,9 +498,8 @@ async function facilityCountsByCell(
   }
 }
 
-/** Aggregate the merged tickets into H3 cells at `res` → per-cell facts. */
-export async function computeCellFacts(res: number): Promise<CellFacts[]> {
-  const tickets = await allTicketsMerged();
+/** Aggregate the supplied live-evidence ticket view into H3 cells at `res`. */
+export async function computeCellFacts(res: number, tickets: Array<MergedTicket & { conflict_count: number }>): Promise<CellFacts[]> {
   const gk = getGeokit();
   const bins = new Map<string, { ids: string[]; conflicts: number; sevSum: number }>();
   for (const t of tickets) {

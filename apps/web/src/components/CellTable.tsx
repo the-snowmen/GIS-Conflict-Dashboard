@@ -55,7 +55,7 @@ export default function CellTable({ scores, activeCell, onPick, cap = 150 }: Pro
   return (
     <div className="cell-table">
       <div className="cell-rank-bar">
-        <span className="cell-table-h">Ranked cells ({scores.length})</span>
+        <span className="cell-table-h">Priority cells ({scores.length})</span>
         <label className="cell-sort">
           Sort
           <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
@@ -75,14 +75,15 @@ export default function CellTable({ scores, activeCell, onPick, cap = 150 }: Pro
             title="Drill into this cell’s tickets"
             onClick={() => onPick(c)}
           >
-            <span className="cell-row-idx">
-              {c.is_hotspot && <span className="hot-badge" title="high ticket volume and high conflict rate">hot</span>}
-              {c.index.toFixed(2)}
+            <span className="cell-row-main">
+              <span className="cell-row-idx">
+                {c.is_hotspot && <span className="hot-badge" title="high ticket volume and high conflict rate">hotspot</span>}
+                {Math.round(c.conflict_rate * 100)}% conflict rate
+              </span>
+              <span className="cell-row-context">Index {c.index.toFixed(2)} · {c.ticket_count} ticket{c.ticket_count === 1 ? "" : "s"}</span>
             </span>
             <span className="cell-row-stats">
-              <span><em>tk</em> {c.ticket_count}</span>
-              <span><em>conf</em> {Math.round(c.conflict_rate * 100)}%</span>
-              <span><em>fac</em> {c.facility_count}</span>
+              <span>{c.facility_count} facilities</span>
             </span>
           </button>
         ))}

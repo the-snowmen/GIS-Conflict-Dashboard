@@ -208,13 +208,15 @@ def build(metro_key: str, n_tickets: int, force: bool) -> None:
     con.execute("SELECT setseed(0.42)")
     utm = f"EPSG:{metro['utm_epsg']}"
 
-    # --- facilities: neutral operator + fabricated status, real voltage class/geometry ---
+    # --- facilities: neutral operator + fabricated status, public technical attributes ---
     log("building facility table...")
     con.execute(
         """
         CREATE TABLE facility AS
         WITH src AS (
           SELECT NULLIF(CAST(VOLT_CLASS AS VARCHAR), '') AS volt_class,
+                 TRY_CAST(VOLTAGE AS DOUBLE) AS nominal_kv,
+                 NULLIF(CAST(TYPE AS VARCHAR), '') AS asset_type,
                  ST_Force2D(geom) AS geom,
                  random() AS r_status,
                  random() AS r_owner
@@ -223,6 +225,7 @@ def build(metro_key: str, n_tickets: int, force: bool) -> None:
         )
         SELECT row_number() OVER () AS id,
                'transmission_line' AS kind,
+               printf('TX-AUS-%04d', row_number() OVER ()) AS asset_ref,
                -- weighted neutral operator: ~35% is "ours" (Operator Alpha) so conflicts are common
                CASE WHEN r_owner < 0.35 THEN 'Operator Alpha'
                     WHEN r_owner < 0.55 THEN 'Operator Beta'
@@ -230,6 +233,8 @@ def build(metro_key: str, n_tickets: int, force: bool) -> None:
                     WHEN r_owner < 0.87 THEN 'Operator Delta'
                     ELSE 'Operator Epsilon' END AS owner,
                COALESCE(volt_class, 'UNKNOWN') AS voltage_class,
+               nominal_kv,
+               COALESCE(asset_type, 'UNKNOWN') AS asset_type,
                CASE WHEN r_status < 0.82 THEN 'in_service'
                     WHEN r_status < 0.93 THEN 'planned'
                     ELSE 'retired' END AS status,
@@ -301,9 +306,17 @@ def build(metro_key: str, n_tickets: int, force: bool) -> None:
         """
         CREATE TABLE ticket AS
         SELECT b.ticket_id, b.source,
-               COALESCE(cf.conflict_count, 0) AS conflict_count,
-               CASE WHEN COALESCE(cf.conflict_count,0) > 0 THEN 'potential_conflict'
-                    ELSE 'no_conflict' END AS status,
+               COALESCE(cf.conflict_count, 0) AS intake_conflict_count,
+               CASE b.source
+                    WHEN '811_locate' THEN 'locate'
+                    WHEN 'design_review' THEN 'design'
+                    WHEN 'field_survey' THEN 'survey'
+                    WHEN 'permit' THEN 'permit'
+               END AS work_type,
+               CASE WHEN COALESCE(cf.conflict_count, 0) >= 3 THEN 'high'
+                    WHEN COALESCE(cf.conflict_count, 0) >= 1 THEN 'normal'
+                    ELSE 'low' END AS priority,
+               'new' AS workflow_status,
                b.created_at, b.lon, b.lat,
                b.h3_res5, b.h3_res6, b.h3_res7, b.h3_res8,
                b.county_geoid, ? AS state,
@@ -314,17 +327,20 @@ def build(metro_key: str, n_tickets: int, force: bool) -> None:
         [metro["state"]],
     )
     conflicts = con.execute(
-        "SELECT count(*) FILTER (WHERE conflict_count > 0), count(*) FROM ticket"
+        "SELECT count(*) FILTER (WHERE intake_conflict_count > 0), count(*) FROM ticket"
     ).fetchone()
     log(f"  tickets: {conflicts[1]} ({conflicts[0]} with conflicts)")
 
     # --- export GeoParquet (geometry as WKB; browser does ST_GeomFromWKB) ---
     log("writing parquet assets...")
     exports = {
-        "facility": "SELECT id, kind, owner, voltage_class, status, ST_AsWKB(geom) AS geom FROM facility",
+        "facility": (
+            "SELECT id, kind, asset_ref, owner, voltage_class, nominal_kv, asset_type, status, "
+            "ST_AsWKB(geom) AS geom FROM facility"
+        ),
         "county": "SELECT geoid, name, state, ST_AsWKB(geom) AS geom FROM county",
         "ticket": (
-            "SELECT ticket_id, source, status, conflict_count, created_at, lon, lat, "
+            "SELECT ticket_id, source, work_type, priority, workflow_status, intake_conflict_count, created_at, lon, lat, "
             "h3_res5, h3_res6, h3_res7, h3_res8, county_geoid, state, "
             "ST_AsWKB(geom) AS geom FROM ticket"
         ),
@@ -347,7 +363,7 @@ def write_config(metro_key: str, metro: dict) -> None:
         "label": metro["label"],
         "selfOwners": [SELF_OPERATOR],
         "excludedFacilityStatuses": EXCLUDED_FACILITY_STATUSES,
-        "ticketStatuses": ["potential_conflict", "no_conflict"],
+        "ticketWorkflowStatuses": ["new", "in_review", "resolved"],
         "note": "Generic owner/status gating expressed as a SQL WHERE clause at query time.",
     }
     text = json.dumps(cfg, indent=2) + "\n"

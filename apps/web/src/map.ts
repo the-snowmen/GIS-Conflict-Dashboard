@@ -294,6 +294,21 @@ export class MapController {
     (this.map.getSource(id) as GeoJSONSource | undefined)?.setData(data);
   }
 
+  /** Give the imported AOI currently under analysis an unmistakable amber treatment. */
+  setImportedSelection(id: string | null) {
+    if (this.destroyed) return;
+    const selected = id ? ["==", ["get", "__import_id"], id] : false;
+    const paint = (layer: string, property: string, selectedValue: number | string, baseValue: number | string) => {
+      if (this.map.getLayer(layer)) this.map.setPaintProperty(layer, property, ["case", selected, selectedValue, baseValue] as ExpressionSpecification);
+    };
+    paint("kmz-line", "line-color", "#ffd166", "#c08bff");
+    paint("kmz-line", "line-width", 4, 2);
+    paint("kmz-fill", "fill-color", "#ffd166", "#c08bff");
+    paint("kmz-fill", "fill-opacity", 0.34, 0.2);
+    paint("kmz-point", "circle-color", "#ffd166", "#c08bff");
+    paint("kmz-point", "circle-radius", 8, 5);
+  }
+
   /**
    * Flag a single facility geometry on the conflict-highlight overlay.
    * pulse=true animates width/opacity (for hover); pulse=false is a steady

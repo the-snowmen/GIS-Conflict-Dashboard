@@ -32,6 +32,7 @@ import { polygonCentroid, distPointToGeomM } from "./lib/geometry";
 import { buildPopupNode } from "./lib/popup";
 import {
   allTicketsMerged,
+  bufferGeometry,
   bufferPoint,
   conflictForAoi,
   config,
@@ -94,9 +95,14 @@ export default function App() {
   const [defaultRule, setDefaultRule] = useState<ConflictRule | null>(null); // config baseline, for presets
   const ruleRef = useRef<ConflictRule | null>(null);
   ruleRef.current = rule;
-  const { kmzName, kmzInputRef, onKmz, clearKmz } = useKmzImport(ctrl);
+  const { kmzName, kmzInputRef, onKmz, clearKmz, selectImported } = useKmzImport(ctrl);
   // --- H3 conflict-index second altitude ---
-  const [altitude, setAltitude] = useState<Altitude>("tickets");
+  const [altitude, setAltitude] = useState<Altitude>("cells");
+  // The map is initialized asynchronously. Keep the requested altitude available to
+  // that one-time setup so its initially-hidden H3 layers are synchronized even
+  // though the visibility effect ran before a controller existed.
+  const altitudeRef = useRef<Altitude>(altitude);
+  altitudeRef.current = altitude;
   const [cellRes, setCellRes] = useState(7);
   const [cellWeights, setCellWeights] = useState<CellWeights>(DEFAULT_CELL_WEIGHTS);
   const [cellThreshold, setCellThreshold] = useState(0);
@@ -123,7 +129,7 @@ export default function App() {
   const [leftOpen, setLeftOpen] = usePersistedState("gcd.leftOpen", true);
   const [rightOpen, setRightOpen] = usePersistedState("gcd.rightOpen", true);
   // Right tools column: which tab is open (mode-scoped).
-  const [toolTab, setToolTab] = useState("analyze");
+  const [toolTab, setToolTab] = useState("index");
   // Help overlay (keyboard-shortcut reference).
   const [helpOpen, setHelpOpen] = useState(false);
   // Mobile (phone) = a Maps-style bottom-sheet drawer over a full-bleed map.
@@ -151,6 +157,7 @@ export default function App() {
     c.whenReady(async () => {
       try {
         c.initLayers();
+        c.setCellsVisible(altitudeRef.current === "cells");
         c.enableInspect((layerId, feature, lngLat) => onInspectRef.current(layerId, feature, lngLat));
         const cfg = await config();
         setLabel(cfg.label);
@@ -230,9 +237,11 @@ export default function App() {
       setTicketInfo({
         ticket_id: t.ticket_id,
         source: t.source,
-        status: t.status,
+        work_type: "work_type" in t ? String(t.work_type) : "permit",
+        priority: "priority" in t ? String(t.priority) : "normal",
+        workflow_status: "workflow_status" in t ? String(t.workflow_status) : "new",
         county,
-        storedCount: Number(t.conflict_count),
+        storedCount: Number(t.intake_conflict_count),
         liveCount: res.count,
         radius: radiusRef.current,
         lon: lng,
@@ -242,8 +251,11 @@ export default function App() {
             const p = (f.properties ?? {}) as Record<string, unknown>;
             return {
               id: p.id as number | undefined,
+              asset_ref: p.asset_ref as string | undefined,
               owner: p.owner as string | undefined,
               voltage_class: p.voltage_class as string | undefined,
+              nominal_kv: p.nominal_kv as number | undefined,
+              asset_type: p.asset_type as string | undefined,
               status: p.status as string | undefined,
               geometry: f.geometry,
               dist_m: f.geometry ? distPointToGeomM([lng, lat], f.geometry) : undefined,
@@ -273,18 +285,26 @@ export default function App() {
           {
             ticket_id: String(props.ticket_id ?? ""),
             source: String(props.source ?? ""),
-            status: String(props.status ?? ""),
+            intake_conflict_count: Number(props.intake_conflict_count ?? 0),
             conflict_count: Number(props.conflict_count ?? 0),
           },
           lngLat.lng,
           lngLat.lat,
         );
+      } else if (layerId.startsWith("kmz-")) {
+        const imported = selectImported(String(props.__import_id ?? ""));
+        if (!imported) return;
+        const geom = imported.geometry.type === "Polygon" || imported.geometry.type === "MultiPolygon"
+          ? imported.geometry
+          : bufferGeometry(imported.geometry, radiusRef.current);
+        lastPointRef.current = null;
+        void runConflict(geom, polygonCentroid(geom), `imported AOI: ${imported.name}`);
       } else {
         setTicketInfo(null);
         c.showInspectPopup(lngLat, buildPopupNode(layerId, props));
       }
     },
-    [handleTicketSelect, cellScores],
+    [handleTicketSelect, cellScores, selectImported, runConflict],
   );
   onInspectRef.current = onInspect;
 
@@ -297,6 +317,27 @@ export default function App() {
   }, []);
 
   // --- modes ---------------------------------------------------------------
+  // Open the create form at a point: run the conflict analysis (so the AOI/conflicts
+  // show and status can be derived), drop a draggable marker that re-analyzes on move,
+  // and seed the source-only form. Shared by the analyze draw, "New ticket", and "Save as ticket".
+  const beginCreateAt = useCallback(
+    (lng: number, lat: number) => {
+      const c = ctrl.current;
+      if (!c) return;
+      lastPointRef.current = { lng, lat, ticket: null };
+      void runConflict(bufferPoint(lng, lat, radiusRef.current), [lng, lat], `new ticket @ ${radiusRef.current} m`);
+      c.spawnDragMarker(lng, lat, (nlng, nlat) => {
+        setEditing((ed) => (ed ? { ...ed, lon: nlng, lat: nlat } : ed));
+        lastPointRef.current = { lng: nlng, lat: nlat, ticket: null };
+        void runConflict(bufferPoint(nlng, nlat, radiusRef.current), [nlng, nlat], `new ticket @ ${radiusRef.current} m`, false);
+      });
+      setEditing({ mode: "create", source: "", work_type: "permit", priority: "low", workflow_status: "new", lon: lng, lat, lon0: lng, lat0: lat });
+    },
+    [runConflict],
+  );
+
+  // Analyze → draw: dropping a buffer point or finishing a drawn AOI flows straight into the
+  // create form, seeded at that location (a drawn polygon uses its centroid — tickets are point+radius).
   const setBufferMode = useCallback(() => {
     const c = ctrl.current;
     if (!c) return;
@@ -306,11 +347,11 @@ export default function App() {
     setTicketInfo(null);
     setMode("buffer");
     c.enableBufferClick((lng, lat) => {
-      lastPointRef.current = { lng, lat, ticket: null };
-      const geom = bufferPoint(lng, lat, radiusRef.current);
-      void runConflict(geom, [lng, lat], `${radiusRef.current} m buffer`);
+      c.disableBufferClick();
+      setMode("idle");
+      beginCreateAt(lng, lat);
     });
-  }, [runConflict, endTicketEdit]);
+  }, [beginCreateAt, endTicketEdit]);
 
   const setDrawMode = useCallback(() => {
     const c = ctrl.current;
@@ -321,11 +362,11 @@ export default function App() {
     setTicketInfo(null);
     setMode("draw");
     c.startPolygonDraw((geom) => {
-      lastPointRef.current = null;
       setMode("idle");
-      void runConflict(geom, polygonCentroid(geom), "drawn area");
+      const [clng, clat] = polygonCentroid(geom);
+      beginCreateAt(clng, clat);
     });
-  }, [runConflict, endTicketEdit]);
+  }, [beginCreateAt, endTicketEdit]);
 
   const clearAoi = useCallback(() => {
     const c = ctrl.current;
@@ -385,20 +426,17 @@ export default function App() {
   useEffect(() => {
     if (!rule) return;
     const id = setTimeout(() => {
-      void liveTicketConflictCounts(rule)
+      void liveTicketConflictCounts(tickets, rule)
         .then(setLiveCounts)
         .catch((e) => console.warn("live conflict recompute failed", e));
     }, 200);
     return () => clearTimeout(id);
-  }, [rule]);
+  }, [rule, tickets]);
 
-  // The stored intake counts overlaid with the live rule's counts (baseline tickets
-  // only; user-created tickets keep their stored count).
+  // The unified live evidence view drives tickets, H3 cells, and detail badges.
   const viewTickets = useMemo(() => {
     if (!liveCounts) return tickets;
-    return tickets.map((t) =>
-      t.origin === "user" ? t : { ...t, conflict_count: liveCounts.get(t.ticket_id) ?? 0 },
-    );
+    return tickets.map((t) => ({ ...t, conflict_count: liveCounts.get(t.ticket_id) ?? 0 }));
   }, [tickets, liveCounts]);
 
   // One-click rule bundles, built from the config baseline + the live facet sets.
@@ -464,8 +502,11 @@ export default function App() {
             properties: {
               ticket_id: t.ticket_id,
               source: t.source,
-              status: t.status,
-              conflict_count: t.conflict_count,
+              work_type: t.work_type,
+              priority: t.priority,
+              workflow_status: t.workflow_status,
+              intake_conflict_count: t.intake_conflict_count,
+              conflict_count: liveCounts?.get(t.ticket_id) ?? t.conflict_count,
               county_geoid: t.county_geoid,
               origin: t.origin,
             },
@@ -474,8 +515,10 @@ export default function App() {
       c.setData("tickets", subset);
       c.map.flyTo({ center: cell.centroid, zoom: Math.max(c.map.getZoom(), 11), duration: 600 });
       c.flashCell(cell.geometry); // pulse the picked hex so it's identifiable on the map
+      setToolTab("analyze");
+      setAltitude("tickets");
     },
-    [tickets],
+    [tickets, liveCounts],
   );
   pickCellRef.current = pickCell;
 
@@ -502,33 +545,32 @@ export default function App() {
     [endTicketEdit],
   );
 
-  // Toggle the choropleth vs the density heatmap; clear any drill when leaving cells.
+  // Keep a drilled cell visible while its ticket evidence is reviewed.
   useEffect(() => {
     const c = ctrl.current;
     if (!c) return;
-    const cells = altitude === "cells";
+    const cells = altitude === "cells" || drillCellId !== null;
     c.setCellsVisible(cells);
     c.setLayerVisible("hex-fill", cells ? false : hexOn);
-    if (!cells && drillCellId) void clearDrill();
   }, [altitude, hexOn, drillCellId, clearDrill]);
 
   // (Re)compute the per-cell FACTS when the cell altitude opens or the grain changes.
   useEffect(() => {
-    if (altitude !== "cells") return;
+    if (altitude !== "cells" && !drillCellId) return;
     let live = true;
     setCellFacts(null);
-    void computeCellFacts(cellRes).then((f) => {
+    void computeCellFacts(cellRes, viewTickets).then((f) => {
       if (live) setCellFacts(f);
     });
     return () => {
       live = false;
     };
-  }, [altitude, cellRes]);
+  }, [altitude, drillCellId, cellRes, viewTickets]);
 
   // Re-score (OPINIONS: weights/norm) whenever the facts or weights settle → repaint.
   useEffect(() => {
     const c = ctrl.current;
-    if (altitude !== "cells" || !c || !cellFacts) return;
+    if ((altitude !== "cells" && !drillCellId) || !c || !cellFacts) return;
     window.clearTimeout(cellDebounceRef.current);
     cellDebounceRef.current = window.setTimeout(() => {
       const scores = scoreCells(cellFacts, cellWeights);
@@ -538,7 +580,7 @@ export default function App() {
     }, 60);
     return () => window.clearTimeout(cellDebounceRef.current);
     // cellThreshold intentionally omitted — it has its own paint-only effect below.
-  }, [altitude, cellFacts, cellWeights]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [altitude, drillCellId, cellFacts, cellWeights]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Threshold is a paint-only change (dim below-threshold cells) — no re-score.
   useEffect(() => {
@@ -554,25 +596,6 @@ export default function App() {
     setStats(await loadStats());
     if (hexOn) c.setData("hex", await hexDensity(hexRes));
   }, [hexOn, hexRes]);
-
-  // Open the create form at a point: run the conflict analysis (so the AOI/conflicts
-  // show and status can be derived), drop a draggable marker that re-analyzes on move,
-  // and seed the source-only form. Shared by "New ticket" and "Save as ticket".
-  const beginCreateAt = useCallback(
-    (lng: number, lat: number) => {
-      const c = ctrl.current;
-      if (!c) return;
-      lastPointRef.current = { lng, lat, ticket: null };
-      void runConflict(bufferPoint(lng, lat, radiusRef.current), [lng, lat], `new ticket @ ${radiusRef.current} m`);
-      c.spawnDragMarker(lng, lat, (nlng, nlat) => {
-        setEditing((ed) => (ed ? { ...ed, lon: nlng, lat: nlat } : ed));
-        lastPointRef.current = { lng: nlng, lat: nlat, ticket: null };
-        void runConflict(bufferPoint(nlng, nlat, radiusRef.current), [nlng, nlat], `new ticket @ ${radiusRef.current} m`, false);
-      });
-      setEditing({ mode: "create", source: "", lon: lng, lat, lon0: lng, lat0: lat });
-    },
-    [runConflict],
-  );
 
   const startAddTicket = useCallback(() => {
     const c = ctrl.current;
@@ -612,7 +635,10 @@ export default function App() {
         lastPointRef.current = { lng: nlng, lat: nlat, ticket: null };
         void runConflict(bufferPoint(nlng, nlat, radiusRef.current), [nlng, nlat], `editing ${t.ticket_id} @ ${radiusRef.current} m`, false);
       });
-      setEditing({ mode: "edit", ticket_id: t.ticket_id, source: t.source, lon: t.lon, lat: t.lat, lon0: t.lon, lat0: t.lat });
+      setEditing({
+        mode: "edit", ticket_id: t.ticket_id, source: t.source, work_type: t.work_type,
+        priority: t.priority, workflow_status: t.workflow_status, lon: t.lon, lat: t.lat, lon0: t.lon, lat0: t.lat,
+      });
     },
     [runConflict],
   );
@@ -632,10 +658,15 @@ export default function App() {
     const c = ctrl.current;
     if (!ed || !c) return;
     if (ed.mode === "create") {
-      await createTicket({ source: ed.source, lon: ed.lon, lat: ed.lat, radiusM: radiusRef.current });
+      await createTicket({
+        source: ed.source, work_type: ed.work_type, priority: ed.priority, workflow_status: ed.workflow_status,
+        lon: ed.lon, lat: ed.lat, radiusM: radiusRef.current,
+      });
     } else if (ed.ticket_id) {
       const moved = ed.lon !== ed.lon0 || ed.lat !== ed.lat0;
-      const patch: { source?: string; lon?: number; lat?: number } = { source: ed.source };
+      const patch: Parameters<typeof updateTicket>[1] = {
+        source: ed.source, work_type: ed.work_type, priority: ed.priority, workflow_status: ed.workflow_status,
+      };
       if (moved) {
         patch.lon = ed.lon;
         patch.lat = ed.lat;
@@ -665,20 +696,30 @@ export default function App() {
     await refreshTickets();
   }, [editing, refreshTickets]);
 
+  const drilledViewTickets = useMemo(() => {
+    if (!drillCellId) return viewTickets;
+    const ids = new Set(cellScores.find((c) => c.cell_id === drillCellId)?.ticket_ids ?? []);
+    return viewTickets.filter((t) => ids.has(t.ticket_id));
+  }, [viewTickets, drillCellId, cellScores]);
+
   // Ticket search/filter state + derived option lists and the filtered, date-sorted list.
   const {
     tq,
     setTq,
     fSource,
     setFSource,
-    fStatus,
-    setFStatus,
+    fWorkflowStatus,
+    setFWorkflowStatus,
+    fPriority,
+    setFPriority,
+    fWorkType,
+    setFWorkType,
     fMinConflicts,
     setFMinConflicts,
     sourceOptions,
-    statusFilterOptions,
+    workflowStatusOptions,
     filteredTickets,
-  } = useTicketFilters(viewTickets, tickets);
+  } = useTicketFilters(drilledViewTickets, tickets);
 
   // Push the live-rule ticket counts to the map dots (tickets mode, not while drilled
   // into a cell — the drill sets its own subset).
@@ -761,12 +802,11 @@ export default function App() {
   }, [ticketInfo?.ticket_id]);
 
   // --- exports -------------------------------------------------------------
-  const { recenterAoi, exportConflictKmz, exportTicketsKmz } = useExports({
+  const { recenterAoi, exportConflictKmz } = useExports({
     ctrl,
     lastResultRef,
     ruleRef,
     label,
-    filteredTickets,
   });
 
 
@@ -803,9 +843,13 @@ export default function App() {
             source={fSource}
             onSource={setFSource}
             sourceOptions={sourceOptions}
-            status={fStatus}
-            onStatus={setFStatus}
-            statusOptions={statusFilterOptions}
+            workflowStatus={fWorkflowStatus}
+            onWorkflowStatus={setFWorkflowStatus}
+            workflowStatusOptions={workflowStatusOptions}
+            priority={fPriority}
+            onPriority={setFPriority}
+            workType={fWorkType}
+            onWorkType={setFWorkType}
             minConflicts={fMinConflicts}
             onMinConflicts={setFMinConflicts}
           />
@@ -821,6 +865,9 @@ export default function App() {
               radius={radius}
               conflict={conflict}
               onChangeSource={(v) => setEditing((ed) => (ed ? { ...ed, source: v } : ed))}
+              onChangeWorkType={(v) => setEditing((ed) => (ed ? { ...ed, work_type: v } : ed))}
+              onChangePriority={(v) => setEditing((ed) => (ed ? { ...ed, priority: v } : ed))}
+              onChangeWorkflowStatus={(v) => setEditing((ed) => (ed ? { ...ed, workflow_status: v } : ed))}
               onSave={() => void saveEditing()}
               onDelete={() => void deleteEditing()}
               onCancel={cancelEditing}
@@ -834,7 +881,7 @@ export default function App() {
                   {
                     ticket_id: ticketInfo.ticket_id,
                     source: ticketInfo.source,
-                    status: ticketInfo.status,
+                    intake_conflict_count: ticketInfo.storedCount,
                     conflict_count: ticketInfo.storedCount,
                   },
                   ticketInfo.lon,
@@ -845,13 +892,19 @@ export default function App() {
                 startEdit({
                   ticket_id: ticketInfo.ticket_id,
                   source: ticketInfo.source,
-                  status: ticketInfo.status,
+                  work_type: ticketInfo.work_type as EditableTicket["work_type"],
+                  priority: ticketInfo.priority as EditableTicket["priority"],
+                  workflow_status: ticketInfo.workflow_status as EditableTicket["workflow_status"],
                   lon: ticketInfo.lon,
                   lat: ticketInfo.lat,
                 })
               }
               onClose={clearAoi}
-              onExportKmz={exportConflictKmz}
+              onExportKmz={() => exportConflictKmz({
+                ticket_id: ticketInfo.ticket_id, source: ticketInfo.source, work_type: ticketInfo.work_type,
+                priority: ticketInfo.priority, workflow_status: ticketInfo.workflow_status,
+                conflict_count: ticketInfo.liveCount, lon: ticketInfo.lon, lat: ticketInfo.lat,
+              })}
               onHoverFacility={hoverFacility}
               onLeaveFacility={leaveFacility}
               onInspectFacility={inspectFacility}
@@ -865,14 +918,17 @@ export default function App() {
                     : `${filteredTickets.length.toLocaleString()} / ${tickets.length.toLocaleString()}`})
                 </h2>
                 <div className="left-actions">
-                  <button className={`btn ${mode === "addTicket" ? "active" : ""}`} onClick={startAddTicket}>
-                    ＋ New
-                  </button>
-                  <button className="btn" onClick={exportTicketsKmz} title="Export the visible tickets as KMZ (Google Earth)">
-                    ⤓ KMZ
+                  <button className={`btn ${mode === "addTicket" ? "active" : ""}`} onClick={startAddTicket} title="Create a browser-local scenario ticket">
+                    ＋ Local ticket
                   </button>
                 </div>
               </div>
+              {drillCellId && (
+                <div className="cell-drill">
+                  H3 screening → ticket evidence <code>{drillCellId.slice(0, 7)}…</code>
+                  <button type="button" onClick={() => { void clearDrill(); goAltitude("cells"); }}>return to screening</button>
+                </div>
+              )}
               {mode === "addTicket" && !editing && (
                 <p className="muted place-hint">Click the map to place the ticket.</p>
               )}
@@ -910,7 +966,6 @@ export default function App() {
         }}
         canSaveAsTicket={!!(lastPointRef.current && !lastPointRef.current.ticket && !editing)}
         onRecenter={recenterAoi}
-        onExportKmz={exportConflictKmz}
         onSaveAsTicket={saveBufferAsTicket}
       />
 
@@ -988,7 +1043,7 @@ export default function App() {
                 onToggleHex={toggleHex}
                 kmzName={kmzName}
                 onImportKmz={onKmz}
-                onClearKmz={clearKmz}
+                onClearKmz={() => { clearKmz(); clearAoi(); }}
                 kmzInputRef={kmzInputRef}
               />
               <Legend open={legendOpen} onToggle={() => setLegendOpen((o) => !o)} />
@@ -1018,5 +1073,3 @@ export default function App() {
     </div>
   );
 }
-
-

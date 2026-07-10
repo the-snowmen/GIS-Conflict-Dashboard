@@ -39,8 +39,11 @@ export function useFacilityDetail(
       c.showInspectPopup(
         center,
         buildPopupNode("conflict-line", {
+          asset_ref: f.asset_ref,
+          asset_type: f.asset_type,
           owner: f.owner,
           voltage_class: f.voltage_class,
+          nominal_kv: f.nominal_kv,
           status: f.status,
           id: f.id,
         }),

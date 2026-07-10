@@ -43,30 +43,19 @@ export default function TicketDetail({
         </div>
       </div>
       <div className="tp-id">{info.ticket_id}</div>
-      <div className="tp-row"><span className="muted">Source</span><span>{info.source}</span></div>
-      <div className="tp-row"><span className="muted">Status</span><span>{info.status}</span></div>
+      <div className="tp-live-evidence">
+        <span>Live conflict evidence · {info.radius} m <Info title="Recomputed now with the current radius, a geodesic buffer, and the active conflict rule." /></span>
+        <span className={`pill ${info.liveCount > 0 ? "conflict" : "clear"}`}>{info.liveCount > 0 ? `${info.liveCount} conflict` : "clear"}</span>
+      </div>
+      <div className="tp-row"><span className="muted">Work type</span><span>{info.work_type}</span></div>
+      <div className="tp-row"><span className="muted">Priority</span><span>{info.priority}</span></div>
+      <div className="tp-row"><span className="muted">Workflow</span><span>{info.workflow_status}</span></div>
       <div className="tp-row"><span className="muted">County <Info term="jurisdiction" /></span><span>{info.county ?? "—"}</span></div>
-      <div className="tp-row">
-        <span className="muted">
-          Recorded (intake)
-          <Info title="Conflict count captured at intake, using the ticket's recorded radius and a planar (UTM) buffer." />
-        </span>
-        <span className={`pill ${info.storedCount > 0 ? "conflict" : "clear"}`}>
-          {info.storedCount > 0 ? `${info.storedCount} conflict` : "clear"}
-        </span>
-      </div>
-      <div className="tp-row">
-        <span className="muted">
-          Live · {info.radius} m
-          <Info title="Recomputed now at the current radius, a geodesic buffer, and the live conflict rule. It can differ from Recorded when the radius, buffer method, or rule differ — this is expected." />
-        </span>
-        <span className={`pill ${info.liveCount > 0 ? "conflict" : "clear"}`}>
-          {info.liveCount > 0 ? `${info.liveCount} conflict` : "clear"}
-        </span>
-      </div>
-      <p className="tp-note muted">
-        Recorded = intake snapshot; Live = recomputed at the current radius. They differ by design.
-      </p>
+      <div className="tp-row"><span className="muted">Source</span><span>{info.source}</span></div>
+      <details className="tp-recorded">
+        <summary>Recorded intake evidence · {info.storedCount > 0 ? `${info.storedCount} conflict` : "clear"}</summary>
+        <p className="tp-note muted">This is the intake snapshot, captured with the recorded radius and a planar buffer. It can differ from the live evidence above.</p>
+      </details>
       <div className="tp-export">
         <button className="mini" onClick={onExportKmz} title="Export buffer + conflicts as KMZ (Google Earth)">⤓ KMZ</button>
       </div>
@@ -91,11 +80,11 @@ export default function TicketDetail({
               onClick={() => onInspectFacility(f)}
             >
               <span className="tp-fac-name">
-                {f.owner ?? "—"}
+                {f.asset_ref ?? f.owner ?? "—"}
                 {f.id != null && <span className="tp-fac-id">#{f.id}</span>}
               </span>
               <span className="meta">
-                {[f.voltage_class, f.status, f.dist_m != null ? `≈ ${fmtMeters(f.dist_m)}` : null]
+                {[f.asset_type, f.nominal_kv != null ? `${f.nominal_kv} kV` : null, f.voltage_class, f.owner, f.status, f.dist_m != null ? `≈ ${fmtMeters(f.dist_m)}` : null]
                   .filter(Boolean)
                   .join(" · ")}
               </span>

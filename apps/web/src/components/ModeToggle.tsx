@@ -25,7 +25,7 @@ export default function ModeToggle({
         aria-pressed={altitude === "cells"}
         onClick={() => onAltitude("cells")}
       >
-        Cell index
+        H3 screening
       </button>
     </div>
   );

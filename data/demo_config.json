@@ -7,9 +7,10 @@
   "excludedFacilityStatuses": [
     "retired"
   ],
-  "ticketStatuses": [
-    "potential_conflict",
-    "no_conflict"
+  "ticketWorkflowStatuses": [
+    "new",
+    "in_review",
+    "resolved"
   ],
   "note": "Generic owner/status gating expressed as a SQL WHERE clause at query time."
 }
