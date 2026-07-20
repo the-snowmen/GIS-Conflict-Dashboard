@@ -1,9 +1,12 @@
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 
-// The phone-only bottom-sheet chrome: the drag handle + the Browse/Tools segmented control.
+// The phone-only bottom-sheet chrome: the drag handle, the collapsed-state status
+// line (current task + result count), and the Setup | Results segmented control —
+// the same workspace/results split as the desktop layout.
 export default function MobileSheetChrome({
   detent,
   tab,
+  statusLine,
   onGrabDown,
   onGrabMove,
   onGrabUp,
@@ -11,12 +14,13 @@ export default function MobileSheetChrome({
   onSelectTab,
 }: {
   detent: "collapsed" | "half" | "full";
-  tab: "browse" | "tools";
+  tab: "setup" | "results";
+  statusLine: ReactNode;
   onGrabDown: (e: ReactPointerEvent) => void;
   onGrabMove: (e: ReactPointerEvent) => void;
   onGrabUp: (e: ReactPointerEvent) => void;
   onHandleClick: () => void;
-  onSelectTab: (tab: "browse" | "tools") => void;
+  onSelectTab: (tab: "setup" | "results") => void;
 }) {
   return (
     <div className="sheet-chrome">
@@ -33,24 +37,31 @@ export default function MobileSheetChrome({
           aria-label={`Panel size: ${detent}. Activate to resize.`}
         />
       </div>
-      <div className="sheet-seg" role="group" aria-label="Panel content">
-        <button
-          type="button"
-          className={`seg-btn${tab === "browse" ? " active" : ""}`}
-          aria-pressed={tab === "browse"}
-          onClick={() => onSelectTab("browse")}
-        >
-          Browse
+      {detent === "collapsed" && (
+        <button type="button" className="sheet-status" onClick={onHandleClick}>
+          {statusLine}
         </button>
-        <button
-          type="button"
-          className={`seg-btn${tab === "tools" ? " active" : ""}`}
-          aria-pressed={tab === "tools"}
-          onClick={() => onSelectTab("tools")}
-        >
-          Tools
-        </button>
-      </div>
+      )}
+      {detent !== "collapsed" && (
+        <div className="sheet-seg" role="group" aria-label="Panel content">
+          <button
+            type="button"
+            className={`seg-btn${tab === "setup" ? " active" : ""}`}
+            aria-pressed={tab === "setup"}
+            onClick={() => onSelectTab("setup")}
+          >
+            Setup
+          </button>
+          <button
+            type="button"
+            className={`seg-btn${tab === "results" ? " active" : ""}`}
+            aria-pressed={tab === "results"}
+            onClick={() => onSelectTab("results")}
+          >
+            Results
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,13 +1,12 @@
 import { useEffect, useRef } from "react";
 
 const SHORTCUTS: [string, string][] = [
-  ["/", "Focus the search box"],
-  ["1 / 2", "Switch to Tickets / Cell-index mode"],
-  ["b", "Buffer-point tool"],
-  ["d", "Draw-AOI tool"],
-  ["n", "New ticket"],
-  ["[ / ]", "Collapse the left / right panel"],
-  ["Esc", "Close the open detail, form, or this help"],
+  ["/", "Focus the ticket search box"],
+  ["1 / 2", "Assess work area / Screen portfolio"],
+  ["b", "Place a work-area point"],
+  ["d", "Draw a work-area polygon"],
+  ["n", "New local ticket"],
+  ["Esc", "Cancel placement, close the form, or collapse the sheet"],
   ["?", "Show or hide this help"],
 ];
 

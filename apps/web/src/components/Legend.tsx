@@ -11,12 +11,12 @@ export default function Legend({ open, onToggle }: { open: boolean; onToggle: ()
       </button>
       {open && (
         <div className="legend">
-          <LegendItem c="#5b9dff" t="Our transmission (eligible)" kind="line" />
+          <LegendItem c="#c3d2e8" t="Our transmission (eligible)" kind="line" />
           <LegendItem c="#8b96b5" t="Other-owner transmission" kind="line" />
           <LegendItem c="#22d3c5" t="Ticket — no conflict (dot)" kind="point" />
-          <LegendItem c="#ff6b6b" t="Ticket — potential conflict (dot)" kind="point" />
+          <LegendItem c="#ff9f43" t="Ticket — potential conflict (dot)" kind="point" />
           <LegendItem c="#ffd166" t="Active AOI" kind="polygon" />
-          <LegendItem c="#ff3b3b" t="Conflicting facility" kind="line" />
+          <LegendItem c="#ff5252" t="Conflicting facility" kind="line" />
           <LegendItem c="#c08bff" t="Imported KMZ / KML" kind="line" />
         </div>
       )}

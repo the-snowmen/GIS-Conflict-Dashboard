@@ -1,56 +1,50 @@
-import { useCallback, type MutableRefObject, type RefObject } from "react";
-import type { Geometry } from "geojson";
+import { useCallback, type RefObject } from "react";
 import { lineCentroid } from "./geometry";
-import { buildPopupNode } from "./popup";
 import type { MapController } from "../map";
 import type { ConflictFacility } from "../types";
 
-// The conflicting-facility row interactions in the detail panel: hover pulses the line,
-// leaving re-asserts the sticky (clicked) highlight, clicking flies to it + opens the popup.
-// `selectedFacRef` holds the sticky selection (shared with the analysis core).
+// Map feedback for the facilities evidence: hovering a row pulses the facility's
+// conflict line, leaving re-asserts the selected facility's steady highlight, and
+// revealing (row click or drawer "center") flies to it and pins the highlight.
+// Facilities are addressed by their index in the run result — stable within a run.
 export function useFacilityDetail(
   ctrl: RefObject<MapController | null>,
-  selectedFacRef: MutableRefObject<ConflictFacility | null>,
+  facilities: ConflictFacility[],
+  selected: number | null,
 ) {
-  // Hover a facility row -> pulse its line on the map.
-  const hoverFacility = useCallback(
-    (geom: Geometry | null) => {
-      ctrl.current?.highlightConflictFacility(geom);
-    },
-    [ctrl],
-  );
-
-  // Leave a row -> drop the pulse, but re-assert the clicked facility's steady
-  // highlight if one is selected (so a click stays lit after the cursor moves off).
-  const leaveFacility = useCallback(() => {
-    ctrl.current?.highlightConflictFacility(selectedFacRef.current?.geometry ?? null, false);
-  }, [ctrl, selectedFacRef]);
-
-  // Click a facility row -> fly to it, keep it lit, and open its detail popup
-  // (the same popup the map uses for a direct conflict-line click).
-  const inspectFacility = useCallback(
-    (f: ConflictFacility) => {
+  // Hover a row → pulse its line; leave → re-assert the sticky selection (or clear).
+  const hover = useCallback(
+    (idx: number | null) => {
       const c = ctrl.current;
-      if (!c || !f.geometry) return;
-      selectedFacRef.current = f;
-      const center = lineCentroid(f.geometry) as [number, number];
-      c.map.flyTo({ center, zoom: Math.max(c.map.getZoom(), 13), duration: 600 });
-      c.highlightConflictFacility(f.geometry, false); // sticky (no pulse)
-      c.showInspectPopup(
-        center,
-        buildPopupNode("conflict-line", {
-          asset_ref: f.asset_ref,
-          asset_type: f.asset_type,
-          owner: f.owner,
-          voltage_class: f.voltage_class,
-          nominal_kv: f.nominal_kv,
-          status: f.status,
-          id: f.id,
-        }),
-      );
+      if (!c) return;
+      if (idx != null) {
+        c.highlightConflictFacility(facilities[idx]?.geometry ?? null, true);
+      } else {
+        c.highlightConflictFacility(selected != null ? (facilities[selected]?.geometry ?? null) : null, false);
+      }
     },
-    [ctrl, selectedFacRef],
+    [ctrl, facilities, selected],
   );
 
-  return { hoverFacility, leaveFacility, inspectFacility };
+  // Reveal a facility on the map: pin the steady highlight, and fly to it unless
+  // the selection already came from the map (fly = false).
+  const reveal = useCallback(
+    (idx: number | null, fly = true) => {
+      const c = ctrl.current;
+      if (!c) return;
+      const f = idx != null ? facilities[idx] : undefined;
+      if (!f?.geometry) {
+        c.highlightConflictFacility(null);
+        return;
+      }
+      if (fly) {
+        const center = lineCentroid(f.geometry) as [number, number];
+        c.map.flyTo({ center, zoom: Math.max(c.map.getZoom(), 13), duration: 600 });
+      }
+      c.highlightConflictFacility(f.geometry, false); // sticky (no pulse)
+    },
+    [ctrl, facilities],
+  );
+
+  return { hover, reveal };
 }

@@ -1,7 +1,8 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 type SheetDetent = "collapsed" | "half" | "full";
-type SheetTab = "browse" | "tools";
+// The two sheet pages — the same workspace/results split as the desktop layout.
+type SheetTab = "setup" | "results";
 
 const DETENT_VH: Record<SheetDetent, number> = { collapsed: 0, half: 52, full: 90 };
 const DETENT_ORDER = ["collapsed", "half", "full"] as const;
@@ -10,7 +11,7 @@ const DETENT_ORDER = ["collapsed", "half", "full"] as const;
 // Self-contained; the caller reads `sheetDetent`/`sheetTab`/`sheetH` for the root layout
 // and renders the chrome, wiring the returned handlers to it.
 export function useMobileSheet() {
-  const [sheetTab, setSheetTab] = useState<SheetTab>("browse");
+  const [sheetTab, setSheetTab] = useState<SheetTab>("setup");
   const [sheetDetent, setSheetDetent] = useState<SheetDetent>("half");
   const [sheetDragVh, setSheetDragVh] = useState<number | null>(null);
   const sheetDragRef = useRef<{ startY: number; startVh: number } | null>(null);

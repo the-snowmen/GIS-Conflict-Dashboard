@@ -103,6 +103,8 @@ export class MapController {
       style: STYLE,
       center: [-97.74, 30.27],
       zoom: 9,
+      // Report snapshots (captureMapPng) read the canvas outside a render callback.
+      preserveDrawingBuffer: true,
       // Add the attribution control ourselves (below) so compact mode is guaranteed.
       attributionControl: false,
     });
@@ -163,13 +165,15 @@ export class MapController {
     const src = (id: SourceId) => this.map.addSource(id, { type: "geojson", data: EMPTY });
     (["counties", "facilities", "tickets", "hex", "cells", "kmz", "aoi", "conflict", "conflict-highlight", "cell-highlight"] as SourceId[]).forEach(src);
 
+    // Counties sit OUTSIDE the blue family (blue = actions/selection only): a cool
+    // gray hairline so jurisdiction context never reads as an interactive layer.
     this.map.addLayer({
       id: "counties-fill", type: "fill", source: "counties",
-      paint: { "fill-color": "#5b9dff", "fill-opacity": 0.05 },
+      paint: { "fill-color": "#7d8aa8", "fill-opacity": 0.04 },
     });
     this.map.addLayer({
       id: "counties-line", type: "line", source: "counties",
-      paint: { "line-color": "#5b9dff", "line-width": 1.2, "line-opacity": 0.5 },
+      paint: { "line-color": "#7d8aa8", "line-width": 1, "line-opacity": 0.45 },
     });
 
     // H3 conflict-index choropleth ("second altitude") — a PURPLE sequential ramp,
@@ -194,7 +198,8 @@ export class MapController {
     this.map.addLayer({
       id: "cells-hotspot", type: "line", source: "cells", layout: { visibility: "none" },
       filter: ["==", ["get", "hotspot"], true],
-      paint: { "line-color": "#ffd166", "line-width": 2, "line-opacity": 0.95 },
+      // Pink, off the AOI amber so a hotspot outline never reads as the work area.
+      paint: { "line-color": "#f0a6ff", "line-width": 2.5, "line-opacity": 0.95 },
     });
 
     this.map.addLayer({
@@ -208,10 +213,12 @@ export class MapController {
       },
     });
 
+    // Your-network facilities read as bright slate (not action-blue); other owners
+    // stay dim. Red is reserved for the run's confirmed conflict lines (below).
     this.map.addLayer({
       id: "facilities-line", type: "line", source: "facilities",
       paint: {
-        "line-color": ownerCase(DEFAULT_SELF_OWNERS, "#5b9dff", "#8b96b5"),
+        "line-color": ownerCase(DEFAULT_SELF_OWNERS, "#c3d2e8", "#8b96b5"),
         "line-width": ownerCase(DEFAULT_SELF_OWNERS, 2.2, 1.4),
         "line-opacity": 0.9,
       },
@@ -232,9 +239,11 @@ export class MapController {
       paint: { "circle-radius": 5, "circle-color": "#c08bff" },
     });
 
-    // Tickets are dots. Conflict vs clear differ by COLOR (red vs teal) and, so
-    // red-green colorblind users still have a non-color cue, by SIZE + a ring:
-    // conflict = a larger red dot with a light-red ring; clear = a small teal dot.
+    // Tickets are dots. Flagged (potential conflict) vs clear differ by COLOR
+    // (amber vs teal) and, so colorblind users still have a non-color cue, by SIZE
+    // + a ring: flagged = a larger amber dot with a pale-amber ring; clear = a small
+    // teal dot. Amber (potential, from intake/live counts) is deliberately not red —
+    // red belongs to the run's confirmed conflict evidence only.
     const isConflict = [">", ["get", "conflict_count"], 0] as ExpressionSpecification;
     const conflictCase = (yes: number | string, no: number | string): ExpressionSpecification =>
       ["case", isConflict, yes, no] as ExpressionSpecification;
@@ -246,10 +255,10 @@ export class MapController {
           8, conflictCase(3.5, 2.5),
           13, conflictCase(6, 5),
         ] as ExpressionSpecification,
-        "circle-color": conflictCase("#ff6b6b", "#22d3c5"),
+        "circle-color": conflictCase("#ff9f43", "#22d3c5"),
         "circle-opacity": 0.9,
         "circle-stroke-width": conflictCase(2, 0.5),
-        "circle-stroke-color": conflictCase("#ffb3b3", "#0f1420"),
+        "circle-stroke-color": conflictCase("#ffd8a8", "#0f1420"),
       },
     });
 
@@ -262,9 +271,10 @@ export class MapController {
       paint: { "line-color": "#ffd166", "line-width": 2 },
     });
 
+    // Confirmed conflict evidence — the only red on the map.
     this.map.addLayer({
       id: "conflict-line", type: "line", source: "conflict",
-      paint: { "line-color": "#ff3b3b", "line-width": 3.5, "line-opacity": 0.95 },
+      paint: { "line-color": "#ff5252", "line-width": 3.5, "line-opacity": 0.95 },
     });
 
     // Single-feature decoration drawn on top of conflict-line to flag the
@@ -292,6 +302,12 @@ export class MapController {
   setData(id: SourceId, data: FeatureCollection) {
     if (this.destroyed) return;
     (this.map.getSource(id) as GeoJSONSource | undefined)?.setData(data);
+  }
+
+  /** Dashed AOI outline while it's a live preview; solid once a run has analyzed it. */
+  setAoiStyle(mode: "preview" | "ran") {
+    if (this.destroyed || !this.map.getLayer("aoi-line")) return;
+    this.map.setPaintProperty("aoi-line", "line-dasharray", mode === "preview" ? [2, 2] : [1, 0]);
   }
 
   /** Give the imported AOI currently under analysis an unmistakable amber treatment. */
@@ -383,8 +399,8 @@ export class MapController {
    *  setPaintProperty over the whole layer, no per-feature loop. */
   setRuleStyle(selfOwners: string[]) {
     if (this.destroyed || !this.map.getLayer("facilities-line")) return;
-    const owners = selfOwners.length ? selfOwners : [" __none__"]; // never match on empty
-    this.map.setPaintProperty("facilities-line", "line-color", ownerCase(owners, "#5b9dff", "#8b96b5"));
+    const owners = selfOwners.length ? selfOwners : ["\0__none__"]; // never match on empty
+    this.map.setPaintProperty("facilities-line", "line-color", ownerCase(owners, "#c3d2e8", "#8b96b5"));
     this.map.setPaintProperty("facilities-line", "line-width", ownerCase(owners, 2.2, 1.4));
   }
 

@@ -41,7 +41,7 @@ export interface MergedTicket {
   radius_m?: number;
 }
 
-interface Overlay {
+export interface Overlay {
   v: number;
   added: OverlayTicket[];
   edited: Record<string, Partial<OverlayTicket>>;
@@ -170,4 +170,37 @@ export function mergeRows(baseline: MergedTicket[]): MergedTicket[] {
     ...baseline.filter((b) => !deleted.has(b.ticket_id)).map((b) => ({ ...b, ...o.edited[b.ticket_id] })),
     ...o.added.filter((a) => !deleted.has(a.ticket_id)).map((a) => ({ ...a, conflict_count: a.intake_conflict_count })),
   ];
+}
+
+/**
+ * Merge an imported overlay (from a project file) into the local one. Additive:
+ * incoming added-tickets win per ticket_id, edits merge per field, deletes union —
+ * nothing local is silently dropped. Returns the counts for a user-facing summary.
+ */
+export function mergeOverlay(incoming: Partial<Overlay>): { added: number; edited: number; deleted: number } {
+  const o = getOverlay();
+  const inAdded = Array.isArray(incoming.added) ? incoming.added : [];
+  const inEdited = incoming.edited && typeof incoming.edited === "object" ? incoming.edited : {};
+  const inDeleted = Array.isArray(incoming.deleted) ? incoming.deleted : [];
+  let added = 0;
+  for (const t of inAdded) {
+    const i = o.added.findIndex((x) => x.ticket_id === t.ticket_id);
+    if (i >= 0) o.added[i] = t;
+    else o.added.push(t);
+    added++;
+  }
+  let edited = 0;
+  for (const [id, patch] of Object.entries(inEdited)) {
+    o.edited[id] = { ...o.edited[id], ...patch };
+    edited++;
+  }
+  let deleted = 0;
+  for (const id of inDeleted) {
+    if (!o.deleted.includes(id)) {
+      o.deleted.push(id);
+      deleted++;
+    }
+  }
+  commit(o);
+  return { added, edited, deleted };
 }

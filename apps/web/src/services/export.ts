@@ -14,7 +14,7 @@ export interface ExportAssumptions {
   label: string; // region label, e.g. "Austin, TX"
 }
 
-const DISCLAIMER =
+export const DISCLAIMER =
   "Modeled screening over public-domain infrastructure + synthetic work tickets. A conflict = a " +
   "facility owned by the selected network, not in an excluded status, intersecting the Area of " +
   "Interest. Not a survey, locate, or authoritative clearance.";

@@ -172,7 +172,7 @@ export interface Stats {
 
 // geoid -> county name (immutable; read once).
 let countyNamePromise: Promise<Map<string, string>> | null = null;
-function countyNames(): Promise<Map<string, string>> {
+export function countyNames(): Promise<Map<string, string>> {
   return (countyNamePromise ??= q<{ geoid: string; name: string }>(
     `SELECT geoid, name FROM read_parquet('county.parquet')`,
   ).then((rows) => new Map(rows.map((r) => [String(r.geoid), r.name]))));
