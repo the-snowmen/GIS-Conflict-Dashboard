@@ -1,5 +1,6 @@
 import Info from "../Info";
 import { ruleSummary } from "../../lib/ruleSummary";
+import { statusLabel } from "../../lib/facilities";
 import type { ConflictRule, FacilityFacets } from "../../services/demo";
 import type { RulePreset } from "../../types";
 
@@ -20,6 +21,7 @@ export default function ConfigStep({
   disabled,
   radius,
   onRadius,
+  bufferApplies = true,
   rule,
   facets,
   presets,
@@ -30,6 +32,11 @@ export default function ConfigStep({
   disabled: boolean;
   radius: number;
   onRadius: (n: number) => void;
+  /** Whether the radius reaches the analysis — true only for Point areas, which
+   *  aoiOf buffers at run time. A polygon area (drawn, or an import already
+   *  buffered at selection) passes through untouched, so the control would only
+   *  mark results stale and re-run to identical numbers. */
+  bufferApplies?: boolean;
   rule: ConflictRule | null;
   facets: FacilityFacets | null;
   presets: RulePreset[];
@@ -49,41 +56,57 @@ export default function ConfigStep({
         <p className="muted">Loading rule options…</p>
       ) : (
         <>
-          <label className="ws-lbl" htmlFor="radius">
-            Buffer distance <Info term="buffer" />
-          </label>
-          <div className="dist-row">
-            <input
-              id="radius"
-              type="range" min={25} max={500} step={25} value={radius}
-              onChange={(e) => onRadius(Number(e.target.value))}
-              aria-valuetext={`${radius} meters`}
-            />
-            <span className="dist-num">
-              <input
-                type="number" min={25} max={500} step={25} value={radius}
-                aria-label="Buffer distance in meters"
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  if (Number.isFinite(n)) onRadius(Math.max(25, Math.min(500, n)));
-                }}
-              />
-              m
-            </span>
-          </div>
-          <div className="chip-toggles" role="group" aria-label="Distance presets">
-            {DISTANCE_PRESETS.map((d) => (
-              <button
-                key={d}
-                type="button"
-                className={`chip-toggle${radius === d ? " on" : ""}`}
-                aria-pressed={radius === d}
-                onClick={() => onRadius(d)}
-              >
-                {d} m
-              </button>
-            ))}
-          </div>
+          {bufferApplies ? (
+            <>
+              <label className="ws-lbl" htmlFor="radius">
+                Buffer distance <Info term="buffer" />
+              </label>
+              <div className="dist-row">
+                <input
+                  id="radius"
+                  type="range" min={25} max={500} step={25} value={radius}
+                  onChange={(e) => onRadius(Number(e.target.value))}
+                  aria-valuetext={`${radius} meters`}
+                />
+                <span className="dist-num">
+                  <input
+                    type="number" min={25} max={500} step={25} value={radius}
+                    aria-label="Buffer distance in meters"
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      if (Number.isFinite(n)) onRadius(Math.max(25, Math.min(500, n)));
+                    }}
+                  />
+                  m
+                </span>
+              </div>
+              <div className="chip-toggles" role="group" aria-label="Distance presets">
+                {DISTANCE_PRESETS.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    className={`chip-toggle${radius === d ? " on" : ""}`}
+                    aria-pressed={radius === d}
+                    onClick={() => onRadius(d)}
+                  >
+                    {d} m
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            // No control at all rather than a dead one: the analysis uses this area's
+            // polygon verbatim, so a distance here would only mark results stale.
+            <>
+              <div className="ws-lbl">
+                Buffer distance <Info term="buffer" />
+              </div>
+              <p className="muted">
+                Not used — this area is analyzed as the polygon it already is. Imported points and
+                lines are buffered when you select them; drawn areas are used as-is.
+              </p>
+            </>
+          )}
 
           <div className="ws-lbl">
             Conflict rule <Info title="Which facilities count as a conflict. The facilities are fixed facts; this rule is the tunable opinion applied over them — change it after a run and the results are marked out of date until you re-run." />
@@ -142,7 +165,7 @@ export default function ConfigStep({
                     onClick={() => onToggleExcluded(s)}
                     title={on ? "Excluded from conflicts — click to include" : "Counts as a conflict — click to exclude"}
                   >
-                    {s}
+                    {statusLabel(s)}
                   </button>
                 );
               })}

@@ -8,6 +8,7 @@ const CAP = 200;
 export default function TicketPicker({
   filters,
   total,
+  loading,
   selectedId,
   onSelect,
   onEdit,
@@ -15,6 +16,7 @@ export default function TicketPicker({
 }: {
   filters: ReturnType<typeof useTicketFilters>;
   total: number;
+  loading: boolean;
   selectedId: string | null;
   onSelect: (t: MergedTicket) => void;
   onEdit: (t: MergedTicket) => void;
@@ -108,16 +110,27 @@ export default function TicketPicker({
               <span className={`pill ${t.conflict_count > 0 ? "conflict" : "clear"}`}>
                 {t.conflict_count > 0 ? `${t.conflict_count} conflict` : "clear"}
               </span>
-              <button className="mini" title="Edit ticket" onClick={() => onEdit(t)}>✎</button>
+              <button
+                className="mini"
+                aria-label={`Edit ticket ${t.ticket_id}`}
+                title={`Edit ticket ${t.ticket_id}`}
+                onClick={() => onEdit(t)}
+              >
+                ✎
+              </button>
             </span>
           </div>
         ))}
         {filteredTickets.length === 0 && (
-          <div className="empty">
-            <span aria-hidden>🔍</span>
-            No tickets match these filters.
-            <button type="button" className="btn-inline ghost" onClick={clearAll}>Clear filters</button>
-          </div>
+          loading ? (
+            <div className="empty">Loading tickets…</div>
+          ) : (
+            <div className="empty">
+              <span aria-hidden>🔍</span>
+              No tickets match these filters.
+              <button type="button" className="btn-inline ghost" onClick={clearAll}>Clear filters</button>
+            </div>
+          )
         )}
         {filteredTickets.length > CAP && (
           <p className="muted dock-more">Showing {CAP} of {filteredTickets.length.toLocaleString()} — narrow with search.</p>

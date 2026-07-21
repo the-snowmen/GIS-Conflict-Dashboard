@@ -1,5 +1,5 @@
-import { fmtMeters } from "../../lib/geometry";
-import { facilityName, facilityRelation } from "../../lib/facilities";
+import { bufferLabel, fmtMeters } from "../../lib/geometry";
+import { facilityName, facilityRelation, statusLabel } from "../../lib/facilities";
 import { ruleSummary } from "../../lib/ruleSummary";
 import { DISCLAIMER } from "../../services/export";
 import type { FacilityFacets } from "../../services/demo";
@@ -37,8 +37,9 @@ export default function ReportBody({
   )?.name;
   const ranAt = new Date(result.ranAt);
   const title = name.trim() || `${area?.label ?? "Work area"} assessment`;
-  const bufferText =
-    area && area.geometry.type !== "Point" ? "Drawn area (no buffer)" : `${result.radiusM} m (geodesic)`;
+  // Shared with the Summary tab (bufferLabel in lib/geometry.ts) so the two views of
+  // one run cannot disagree about what was buffered.
+  const bufferText = bufferLabel(area, result.radiusM);
   const finding =
     result.conflictCount > 0
       ? `Conflict found — ${result.conflictCount} ${result.conflictCount === 1 ? "facility" : "facilities"} intersect the work area under the active rule.`
@@ -79,7 +80,7 @@ export default function ReportBody({
               {presetName ? `${presetName} — ` : ""}{ruleSummary(rule, facets)}
               <span className="rb-assump">
                 Counts owners: {rule.selfOwners.join(", ") || "(none)"} · excludes statuses:{" "}
-                {rule.excludedStatuses.join(", ") || "(none)"}
+                {rule.excludedStatuses.map(statusLabel).join(", ") || "(none)"}
               </span>
             </dd>
           </div>
@@ -100,7 +101,7 @@ export default function ReportBody({
                   <td>{i + 1}</td>
                   <td>{facilityName(f)}{f.id != null ? ` #${f.id}` : ""}</td>
                   <td>{f.owner ?? "—"}</td>
-                  <td>{f.status ?? "—"}</td>
+                  <td>{f.status ? statusLabel(f.status) : "—"}</td>
                   <td>{facilityRelation(f)}</td>
                   <td>{f.dist_m != null ? `≈ ${fmtMeters(f.dist_m)}` : "—"}</td>
                 </tr>

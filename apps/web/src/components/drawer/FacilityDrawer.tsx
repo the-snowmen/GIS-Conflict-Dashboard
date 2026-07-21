@@ -1,4 +1,5 @@
 import { fmtMeters } from "../../lib/geometry";
+import { statusLabel } from "../../lib/facilities";
 import type { ConflictFacility } from "../../types";
 
 // The contextual drawer: detailed attributes of one conflicting facility. Desktop:
@@ -33,7 +34,7 @@ export default function FacilityDrawer({
       <div className="drawer-rows">
         <div className="tp-row"><span className="muted">Owner</span><span>{facility.owner ?? "—"}</span></div>
         {typeBits && <div className="tp-row"><span className="muted">Type</span><span>{typeBits}</span></div>}
-        <div className="tp-row"><span className="muted">Status</span><span>{facility.status ?? "—"}</span></div>
+        <div className="tp-row"><span className="muted">Status</span><span>{facility.status ? statusLabel(facility.status) : "—"}</span></div>
         {facility.dist_m != null && (
           <div className="tp-row"><span className="muted">Distance</span><span>≈ {fmtMeters(facility.dist_m)} from area</span></div>
         )}

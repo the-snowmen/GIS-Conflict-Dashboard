@@ -3,7 +3,9 @@ import type { CellWeights } from "../../services/demo";
 
 // The scoring-preset cards: the front door to portfolio screening — pick a stance
 // first, tune behind Advanced scoring later. The selection is derived from the
-// live weights: matching a preset checks its card, anything else shows "Custom".
+// live weights: matching a preset presses its card, anything else shows "Custom".
+// Deliberately toggle buttons, not a radiogroup: "Custom" is a real state no radio
+// can represent, and each card applies a weight bundle rather than holding a value.
 export default function PresetCards({
   weights,
   onSelect,
@@ -13,13 +15,12 @@ export default function PresetCards({
 }) {
   const active = matchingPreset(weights);
   return (
-    <div className="preset-cards" role="radiogroup" aria-label="Scoring preset">
+    <div className="preset-cards" role="group" aria-label="Scoring preset">
       {CELL_PRESETS.map((p) => (
         <button
           key={p.name}
           type="button"
-          role="radio"
-          aria-checked={active?.name === p.name}
+          aria-pressed={active?.name === p.name}
           className={`preset-card${active?.name === p.name ? " active" : ""}`}
           onClick={() => onSelect(p.weights)}
         >

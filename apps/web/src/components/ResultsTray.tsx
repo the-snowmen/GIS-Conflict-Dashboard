@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useState } from "react";
 import type { CellScore, FacilityFacets, MergedTicket } from "../services/demo";
 import type { AppMode, RulePreset, RunResult, RunStatus, WorkArea } from "../types";
 import CellTable from "./CellTable";
@@ -88,6 +88,20 @@ export default function ResultsTray({
 }) {
   const [detent, setDetent] = useState<Detent>("half");
   const [tab, setTab] = useState<Tab>("summary");
+  const uid = useId();
+  const panelId = `${uid}-panel`;
+  const tabId = (t: Tab) => `${uid}-tab-${t}`;
+
+  // A pick drills immediately, so the ranked list only ever sees the picked cell on
+  // the way back out. Latch it while the drill is open so exiting lands on a list that
+  // scrolls to — and flashes — the cell just reviewed, then drop it: the list renders
+  // once with the latched cell (child effects run first, so the scroll and flash have
+  // already fired), and clearing here keeps a later remount of the list — a mode round
+  // trip, a rule recount — from replaying the highlight on a cell nobody drilled into.
+  const [lastCell, setLastCell] = useState<string | null>(null);
+  useEffect(() => {
+    setLastCell(activeCell);
+  }, [activeCell]);
 
   // Every new run re-opens the tray on the summary — the verdict first, evidence
   // one tab away. Selecting a facility (row or map) jumps to the facilities tab.
@@ -138,7 +152,7 @@ export default function ResultsTray({
           ) : cellsLoading ? (
             <p className="muted tray-loading">Aggregating tickets into H3 cells…</p>
           ) : (
-            <CellTable scores={scores} activeCell={activeCell} onPick={onPickCell} />
+            <CellTable scores={scores} activeCell={lastCell} onPick={onPickCell} />
           )}
         </div>
       </div>
@@ -147,25 +161,30 @@ export default function ResultsTray({
 
   if (!result && status !== "running") return null;
   const conflicts = result?.conflictCount ?? 0;
+
+  // The detent button is the real expand/collapse control — it walks bar → half →
+  // full → bar, so a keyboard reaches every height and can always collapse the tray
+  // back off the map. Clicking the bar itself is a pointer shortcut (bar ↔ half)
+  // layered on top; the bar can't be a button because it holds the tablist and the
+  // actions. (Mobile: the sheet chrome owns the heights.)
+  const nextDetent: Detent = detent === "bar" ? "half" : detent === "half" ? "full" : "bar";
+  const detentLabel =
+    detent === "bar" ? "Expand results" : detent === "half" ? "Expand results to full height" : "Collapse results";
+
+  // The panel only exists in the DOM when the tray is open, so aria-controls has to
+  // drop off the tabs (and the detent button) while it's collapsed rather than point
+  // at an id nothing renders. Facilities and Report need a result: while a re-run is
+  // in flight they're disabled, so selection — and the panel's label — falls back to
+  // Summary instead of naming a tab the user can't reach.
+  const panelOpen = (isMobile || detent !== "bar") && (!!result || status === "running");
+  const panelLink: { "aria-controls"?: string } = panelOpen ? { "aria-controls": panelId } : {};
+  const activeTab: Tab = result ? tab : "summary";
+
   return (
     <div className={`tray assess detent-${detent}`} aria-label="Analysis results">
       <div
         className="tray-bar"
-        {...(isMobile
-          ? {}
-          : {
-              role: "button",
-              tabIndex: 0,
-              "aria-expanded": detent !== "bar",
-              "aria-label": detent === "bar" ? "Expand results" : "Collapse results",
-              onClick: () => setDetent((d) => (d === "bar" ? "half" : "bar")),
-              onKeyDown: (e: KeyboardEvent) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setDetent((d) => (d === "bar" ? "half" : "bar"));
-                }
-              },
-            })}
+        {...(isMobile ? {} : { onClick: () => setDetent((d) => (d === "bar" ? "half" : "bar")) })}
       >
         {status === "running" || !result ? (
           <span className="tray-status">Analyzing…</span>
@@ -190,6 +209,8 @@ export default function ResultsTray({
         <span className="tray-tabs" role="tablist" aria-label="Result views" onClick={(e) => e.stopPropagation()}>
           <button
             role="tab"
+            id={tabId("summary")}
+            {...panelLink}
             aria-selected={tab === "summary"}
             className={`tray-tab${tab === "summary" ? " active" : ""}`}
             onClick={() => {
@@ -201,6 +222,8 @@ export default function ResultsTray({
           </button>
           <button
             role="tab"
+            id={tabId("facilities")}
+            {...panelLink}
             aria-selected={tab === "facilities"}
             className={`tray-tab${tab === "facilities" ? " active" : ""}`}
             onClick={() => {
@@ -213,6 +236,8 @@ export default function ResultsTray({
           </button>
           <button
             role="tab"
+            id={tabId("report")}
+            {...panelLink}
             aria-selected={tab === "report"}
             className={`tray-tab${tab === "report" ? " active" : ""}`}
             onClick={() => {
@@ -239,9 +264,11 @@ export default function ResultsTray({
           {!isMobile && (
             <button
               className="btn-inline ghost tray-detent"
-              onClick={() => setDetent((d) => (d === "full" ? "half" : "full"))}
-              title={detent === "full" ? "Shrink results" : "Expand results"}
-              aria-label={detent === "full" ? "Shrink results" : "Expand results"}
+              onClick={() => setDetent(nextDetent)}
+              title={detentLabel}
+              aria-label={detentLabel}
+              aria-expanded={detent !== "bar"}
+              {...panelLink}
             >
               {detent === "full" ? "▾" : "▴"}
             </button>
@@ -249,7 +276,7 @@ export default function ResultsTray({
         </span>
       </div>
       {(isMobile || detent !== "bar") && (result || status === "running") && (
-        <div className="tray-body" role="tabpanel">
+        <div className="tray-body" role="tabpanel" id={panelId} aria-labelledby={tabId(activeTab)} tabIndex={0}>
           {!result ? (
             // First run of an area: skeleton rows stand in for the incoming evidence.
             <div className="sk-wrap" aria-hidden="true">

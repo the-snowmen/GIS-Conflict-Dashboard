@@ -80,7 +80,20 @@ export default function CellTicketsTable({
           {rows.map(({ t, county }) => (
             <tr key={t.ticket_id} onClick={() => onLocate(t)} title="Locate on the map">
               <td>
-                <span className="fac-name">{t.ticket_id}</span>
+                {/* The whole row stays clickable for pointers; this button is the keyboard/AT
+                    way in, and names the ticket it locates so the action isn't a bare "locate". */}
+                <button
+                  type="button"
+                  className="row-action"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onLocate(t);
+                  }}
+                >
+                  <span className="sr-only">Locate ticket </span>
+                  <span className="fac-name">{t.ticket_id}</span>
+                  <span className="sr-only"> on the map</span>
+                </button>
                 {t.origin === "user" && <span className="fac-id">local</span>}
               </td>
               <td>{t.work_type}</td>

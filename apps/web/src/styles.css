@@ -18,6 +18,11 @@
   --danger: var(--conflict);
   --workspace-w: 360px;
   --appbar-h: 52px;
+  /* Top-right map corner: where the Layers button sits, and how tall its touch target
+     gets (see `pointer: coarse`). Anything else parked in that corner — the facility
+     drawer, the popover on a phone — clears both so the button is never covered. */
+  --map-ctrl-top: 12px;
+  --map-ctrl-h: 44px;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -64,8 +69,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   border-bottom: 1px solid var(--line);
 }
 .appbar h1 { font-size: 15px; margin: 0; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* top-level mode tabs (Assess work area | Screen portfolio) — centered in the app bar */
-.mode-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; flex: 0 0 auto; position: absolute; left: 50%; transform: translateX(-50%); margin: 0; }
+/* Top-level mode tabs (Assess work area | Screen portfolio). Centered by auto margins
+   rather than absolute positioning: in flow the brand competes for the same space and
+   ellipsizes, so the two can never overlap at a narrow desktop width. */
+.mode-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; flex: 0 0 auto; margin: 0 auto; }
 .mode-btn {
   appearance: none; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
   padding: 7px 16px; border: none; background: var(--panel-2); color: var(--muted);
@@ -80,7 +87,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   flex: 0 0 auto; display: grid; place-items: center;
 }
 .rail-toggle:hover { border-color: var(--accent); }
-.help-btn { font-weight: 700; margin-left: auto; }
+/* .mode-seg's auto margins already push the trailing actions to the right edge — a
+   third auto margin here would split the free space three ways and scatter them. */
+.help-btn { font-weight: 700; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .brand-mark { color: var(--accent); font-size: 18px; line-height: 1; }
 .brand-text { min-width: 0; }
@@ -223,6 +232,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   border: 1px solid rgba(255,209,102,0.5); border-radius: 999px; padding: 2px 8px;
 }
 .tray-body { border-top: 1px solid var(--line); }
+/* the tabpanel is focusable (scrollable region), and it's a div — the generic
+   button:focus-visible ring above doesn't reach it */
+.tray-body:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .tray-body.cells { height: 36vh; min-height: 180px; padding: 10px 14px; display: flex; flex-direction: column; overflow: hidden; }
 .tray-body.cells .cell-table { margin-top: 0; border-top: none; padding-top: 0; }
 .tray-loading { padding: 12px 4px; }
@@ -289,6 +301,14 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .fac-table tbody tr { cursor: pointer; }
 .fac-table tbody tr:hover { background: rgba(91,157,255,0.06); }
 .fac-table tbody tr.selected { background: rgba(91,157,255,0.14); box-shadow: inset 2px 0 0 var(--accent); }
+/* In-row button: the keyboard/AT way into a row action the pointer gets by clicking
+   the row, so it must read as plain cell text. No outline reset — the generic
+   button:focus-visible ring is what makes it findable by keyboard. */
+.row-action {
+  appearance: none; background: transparent; border: 0; padding: 0; margin: 0;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+  display: inline-flex; align-items: center;
+}
 .fac-name { font-weight: 600; }
 .fac-id { color: var(--muted); font-size: 11px; margin-left: 6px; }
 .fac-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -296,16 +316,22 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .fac-clear { margin: auto; max-width: 440px; }
 .fac-clear p { margin: 0; }
 .fac-hint { margin: 0; padding: 8px 16px 10px; border-top: 1px solid rgba(43,53,82,0.5); }
-.pill-existing { background: rgba(62,207,142,0.16); color: var(--ok); }
+/* class comes from the raw status value, so in_service needs its own selector */
+.pill-existing, .pill-in_service { background: rgba(62,207,142,0.16); color: var(--ok); }
 .pill-planned { background: rgba(91,157,255,0.16); color: var(--accent); }
 .pill-retired, .pill-unknown { background: rgba(154,167,194,0.14); color: var(--muted); }
 .small { font-size: 12px; }
 .dim { color: var(--muted); }
 
-/* facility drawer — one facility's full detail, over the map's right edge */
+/* facility drawer — one facility's full detail, over the map's right edge. Shares
+   that corner with the layers button, so it starts below the button's full touch
+   target (--map-ctrl-*, not a hand-tuned offset) and stacks under the layers popover
+   (.map-pop-anchor, z 6) — both stay reachable when both are open. */
 .drawer {
-  position: absolute; top: calc(var(--appbar-h) + 12px); right: 12px; z-index: 8;
-  width: 320px; max-width: calc(100vw - 24px); max-height: calc(100vh - var(--appbar-h) - 140px);
+  position: absolute; z-index: 5; right: 12px;
+  top: calc(var(--appbar-h) + var(--map-ctrl-top) + var(--map-ctrl-h) + 10px);
+  width: 320px; max-width: calc(100vw - 24px);
+  max-height: calc(100vh - var(--appbar-h) - var(--map-ctrl-top) - var(--map-ctrl-h) - 140px);
   overflow-y: auto;
   background: rgba(23,30,46,0.97); border: 1px solid var(--line); border-radius: 12px;
   padding: 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.5);
@@ -397,7 +423,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* --- map + layers popover ---------------------------------------------------- */
 .map-wrap { position: relative; grid-area: map; }
 #map { position: absolute; inset: 0; }
-.map-pop-anchor { position: absolute; top: calc(var(--appbar-h) + 12px); right: 12px; z-index: 6; }
+.map-pop-anchor { position: absolute; top: calc(var(--appbar-h) + var(--map-ctrl-top)); right: 12px; z-index: 6; }
 .map-pop-btn {
   appearance: none; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
   background: rgba(15,20,32,0.92); color: var(--text); border: 1px solid var(--line);
@@ -436,7 +462,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .map-pop .card { padding: 10px; }
 
 /* --- saved analyses menu (header) ---------------------------------------------- */
-.saved-anchor { position: relative; display: flex; }
+/* flex: 0 0 auto so the app bar's shrink lands on the brand (which ellipsizes), not here */
+.saved-anchor { position: relative; display: flex; flex: 0 0 auto; }
 .saved-count { margin-left: 6px; background: var(--accent); color: #0b1020; border-radius: 999px; font-size: 10px; font-weight: 700; padding: 1px 6px; }
 .saved-pop { width: 340px; }
 .saved-warn { margin: 0; color: var(--aoi); line-height: 1.45; }
@@ -746,12 +773,17 @@ a { color: var(--accent); }
   .app.mobile[data-sheet="setup"] .tray { display: none; }
   .app.mobile[data-sheet="results"] .workspace { display: none; }
 
-  /* on the phone the tray IS the sheet page — the whole page scrolls, no inner ports */
+  /* on the phone the tray IS the sheet page — the whole page scrolls, no inner ports.
+     Screen mode's cells body is in here too: its desktop 36vh would leave dead space
+     in a sheet the user can drag to 90vh. */
   .app.mobile .tray.assess.detent-half .tray-body,
-  .app.mobile .tray.assess.detent-full .tray-body { height: auto; min-height: 0; overflow: visible; }
+  .app.mobile .tray.assess.detent-full .tray-body,
+  .app.mobile .tray.screen .tray-body.cells { height: auto; min-height: 0; overflow: visible; }
   .app.mobile .tray.assess .tray-bar { cursor: default; flex-wrap: wrap; }
   .app.mobile .facilities-tab { display: block; }
-  .app.mobile .fac-scroll { overflow: visible; }
+  .app.mobile .fac-scroll,
+  .app.mobile .cell-table,
+  .app.mobile .cell-tickets { overflow: visible; }
   .app.mobile .fac-table th { position: static; }
   .app.mobile .summary { padding: 12px 4px; }
   .app.mobile .summary-grid { grid-template-columns: 1fr; }
@@ -759,8 +791,22 @@ a { color: var(--accent); }
   .app.mobile .report-side { border-right: none; }
   .app.mobile .report-view { padding: 12px 4px; background: transparent; }
   .app.mobile .rb { padding: 16px; }
+  /* pre-run Results sheet: the "nothing here yet" line, centered in the empty sheet */
+  .tray-empty { display: grid; place-items: center; }
+  .tray-empty p { margin: 0; padding: 24px 16px; max-width: 34ch; text-align: center; font-size: 13px; line-height: 1.6; }
+
   /* the header scrolls horizontally on a phone — pin the dropdown to the viewport */
   .app.mobile .saved-pop { position: fixed; top: var(--appbar-h); left: 8px; right: 8px; width: auto; }
+  /* same treatment for the layers popover: its 300px would overflow a narrow phone,
+     and anchored to the button it runs under the sheet chrome. The floor keeps it
+     usable at the tall detent, where the subtraction would otherwise clamp to 0.
+     :not(.saved-pop) — the saved dropdown shares .map-pop but is pinned above. */
+  .app.mobile .map-pop:not(.saved-pop) {
+    position: fixed; top: calc(var(--appbar-h) + var(--map-ctrl-top) + var(--map-ctrl-h) + 2px);
+    left: 8px; right: 8px; width: auto;
+    max-height: max(160px, calc(100vh - var(--appbar-h) - var(--sheet-h) - var(--sheet-chrome-h) - 70px));
+    overflow-y: auto;
+  }
 
   /* sheet chrome (grabber + Setup|Results) sits flush atop the active sheet */
   .sheet-chrome {
@@ -804,8 +850,8 @@ a { color: var(--accent); }
   .app.mobile .appbar { overflow-x: auto; scrollbar-width: none; }
   .app.mobile .appbar::-webkit-scrollbar { display: none; }
 
-  /* header trims */
-  .mode-seg { position: static; transform: none; margin-left: 8px; flex-shrink: 0; }
+  /* header trims — the bar scrolls sideways here, so drop the centering auto margins */
+  .mode-seg { margin: 0 0 0 8px; }
   .brand-sub { display: none; }
   .brand-mark { display: none; }
   .appbar h1 { font-size: 14px; }
@@ -830,6 +876,7 @@ a { color: var(--accent); }
   .map-pop-btn { min-height: 44px; }
   .btn { min-height: 44px; }
   .th-sort { min-height: 44px; }
+  .row-action { min-height: 44px; }
   .saved-open { min-height: 44px; }
   .crumb-back { min-height: 44px; }
   .crumb-exit { min-height: 44px; min-width: 44px; }

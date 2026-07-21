@@ -1,9 +1,33 @@
 // Pure geometry helpers shared across the app (no React, no map deps).
 import type { Geometry, Position } from "geojson";
+import type { WorkArea } from "../types";
 
 // Compact distance label: meters under 1 km, else km with one decimal.
 export function fmtMeters(m: number): string {
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
+}
+
+/**
+ * The "Buffer" fact for a run, derived once so the Summary tab and the report
+ * can never state opposite things about the same area.
+ *
+ * A run buffers exactly one shape (aoiOf in lib/useAnalysisRun.ts): a Point area
+ * gets a geodesic buffer of radiusM, and a Polygon/MultiPolygon area is analyzed
+ * as-is. Ticket, map-point and coordinate areas are always Points (App.tsx).
+ *
+ * Imports are the ambiguous case. An imported area is always a polygon by the time
+ * it is analyzed, but that polygon is either the imported polygon itself (nothing
+ * was ever buffered) or a point/line import buffered at selection, by whatever
+ * radius was set at that moment. The WorkArea records neither the original geometry
+ * type nor that distance, so the label states what is provable — this run added no
+ * buffer — and names the selection-time buffer as the possibility it is.
+ */
+export function bufferLabel(area: WorkArea | null, radiusM: number): string {
+  if (!area) return "Not recorded";
+  if (area.geometry.type === "Point") return `${radiusM} m (geodesic)`;
+  if (area.source === "import")
+    return "Imported area — no buffer applied by this run (point and line imports are buffered at selection)";
+  return "Drawn area (no buffer)";
 }
 
 // A vertex on a line feature (true midpoint vertex), so a popup/flyTo anchor

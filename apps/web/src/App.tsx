@@ -78,6 +78,7 @@ import type {
   EditableTicket,
   RunResult,
   RunStatus,
+  WorkArea,
 } from "./types";
 
 const sameSet = (a: string[], b: string[]): boolean =>
@@ -138,10 +139,15 @@ export default function App() {
 
   // --- the analysis run (DRAFT → RUNNING → FRESH ⇄ STALE) -------------------
   // Report state: the map snapshot (captured after each run) + the analyst's
-  // name/notes for the record. Reset when a new result arrives.
+  // name/notes for the record. Name/notes belong to the work area, not to an
+  // individual run: re-running keeps them so saving updates the same saved run
+  // instead of renaming it to the generated default.
   const [mapShot, setMapShot] = useState<string | null>(null);
   const [reportName, setReportName] = useState("");
   const [reportNotes, setReportNotes] = useState("");
+  // The area the current name/notes describe. Opening a saved run seeds this with
+  // the restored area so the reset below doesn't wipe the record's own name.
+  const reportFor = useRef<WorkArea | null>(null);
   const {
     area,
     setArea,
@@ -156,9 +162,11 @@ export default function App() {
   } = useAnalysisRun({ ctrl, rule, onAnnounce: setLiveMsg, onSnapshot: setMapShot });
 
   useEffect(() => {
+    if (reportFor.current === area) return;
+    reportFor.current = area;
     setReportName("");
     setReportNotes("");
-  }, [result]);
+  }, [area]);
 
   // --- facility evidence selection (row ↔ map sync) ---------------------------
   // The selected facility is an index into result.facilities; the drawer shows it.
@@ -765,12 +773,14 @@ export default function App() {
       endTicketEdit();
       cancelMapMode();
       setRule(r.rule);
+      const wa = workAreaOf(r.area);
+      reportFor.current = wa;
       setReportName(r.name);
       setReportNotes(r.notes);
       if (r.layers.hexOn !== hexOn) void toggleHex();
       if (r.layers.importedOverlay) restoreImported(r.layers.importedOverlay.name, r.layers.importedOverlay.features);
       else clearKmz();
-      restore(workAreaOf(r.area), r.buffer.radiusM, r.result);
+      restore(wa, r.buffer.radiusM, r.result);
       setActiveRunId(r.id);
       goMode("assess");
       setLiveMsg(`Opened “${r.name}”${r.result ? "" : " — a draft; run it to see results"}.`);
@@ -890,6 +900,12 @@ export default function App() {
     startAddTicket,
   });
 
+  // Does the buffer distance still reach the analysis? Only for a Point area —
+  // aoiOf buffers those at run time and passes polygons through verbatim. Note an
+  // imported point/line is buffered when it is SELECTED (see onInspect), so by the
+  // time it is the work area it is a polygon and the distance no longer moves it.
+  const bufferApplies = area?.geometry.type === "Point";
+
   // --- mobile sheet status line (collapsed detent) ------------------------------
   const statusLine =
     appMode === "screen"
@@ -899,10 +915,14 @@ export default function App() {
           ? `⚠ ${result.conflictCount} conflicts · ${result.jurisdiction ?? "—"}`
           : `✓ No conflicts · ${result.jurisdiction ?? "—"}`
         : area
-          ? `Assess · ${area.label} · ${radiusM} m`
+          ? // the distance only belongs in the line when it is part of the configuration
+            `Assess · ${area.label}${bufferApplies ? ` · ${radiusM} m` : ""}`
           : "Assess · pick a ticket or place a point";
 
   const canSaveAsTicket = !!(area && area.geometry.type === "Point" && !area.ticketId && result && !editing);
+
+  // First-run callout: only while there is nothing to look at yet, and only until dismissed.
+  const showWelcome = phase === "ready" && !area && !result && !welcomeDismissed;
 
   return (
     <div
@@ -956,6 +976,7 @@ export default function App() {
                 mapMode={mapMode}
                 filters={filters}
                 ticketsTotal={tickets.length}
+                ticketsLoading={phase !== "ready"}
                 drillCellId={drillCellId}
                 importName={kmzName}
                 importInputRef={kmzInputRef}
@@ -979,6 +1000,7 @@ export default function App() {
                 disabled={!area}
                 radius={radiusM}
                 onRadius={setRadius}
+                bufferApplies={bufferApplies}
                 rule={rule}
                 facets={facets}
                 presets={presets}
@@ -1012,7 +1034,7 @@ export default function App() {
         mapRef={mapEl}
         phase={phase}
         err={err}
-        showWelcome={phase === "ready" && !area && !result && !welcomeDismissed}
+        showWelcome={showWelcome}
         onDismissWelcome={dismissWelcome}
         onExample={runExample}
       />
@@ -1025,7 +1047,13 @@ export default function App() {
         />
       )}
 
-      {!isMobile && phase === "ready" && (
+      {/* Also on mobile: the density heatmap and the legend have no other entry point
+          (Setup's import step covers KMZ, but nothing else surfaces those two).
+          It yields to the first-run callout on a phone, though: both are pinned to the
+          same top-of-map band, and below the phone breakpoint the callout is wide enough
+          that this button lands on its dismiss ✕ — which would make the callout
+          undismissable. Dismissing it (or setting an area) brings the button back. */}
+      {phase === "ready" && !(isMobile && showWelcome) && (
         <div className="map-pop-anchor">
           <LayersPopover
             hexOn={hexOn}
@@ -1075,6 +1103,17 @@ export default function App() {
         onReportName={setReportName}
         onReportNotes={setReportNotes}
       />
+
+      {/* The Results sheet hides the workspace, and the tray renders nothing before a
+          run — so on a phone that combination is a blank page. Say what's missing. */}
+      {isMobile && sheetTab === "results" && appMode === "assess" && !result && status !== "running" && (
+        <div className="tray tray-empty">
+          <p className="muted">
+            <strong>No analysis yet.</strong> On <strong>Setup</strong>, pick a ticket or place a point,
+            set a distance, then <strong>Run analysis</strong> — the verdict and its evidence land here.
+          </p>
+        </div>
+      )}
 
       {isMobile && (
         <MobileSheetChrome

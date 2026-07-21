@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtMeters } from "../../lib/geometry";
-import { facilityName, facilityRelation } from "../../lib/facilities";
+import { facilityName, facilityRelation, statusLabel } from "../../lib/facilities";
 import type { RunResult } from "../../types";
 
 // The Facilities tab: the itemized evidence — every conflicting facility as a
@@ -40,7 +40,10 @@ export default function FacilitiesTab({ result, selected, onSelect, onHover }: P
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const base = q
-      ? rows.filter((r) => `${r.name} ${r.owner} ${r.status} ${r.f.id ?? ""}`.toLowerCase().includes(q))
+      // Both forms in the haystack so "in service" finds an `in_service` row.
+      ? rows.filter((r) =>
+          `${r.name} ${r.owner} ${r.status} ${statusLabel(r.status)} ${r.f.id ?? ""}`.toLowerCase().includes(q),
+        )
       : rows;
     return [...base].sort((a, b) => {
       let cmp = 0;
@@ -139,7 +142,7 @@ export default function FacilitiesTab({ result, selected, onSelect, onHover }: P
                 </td>
                 <td>{r.owner}</td>
                 <td>
-                  <span className={`pill pill-${r.status.toLowerCase()}`}>{r.status}</span>
+                  <span className={`pill pill-${r.status.toLowerCase()}`}>{statusLabel(r.status)}</span>
                 </td>
                 <td>{r.relation}</td>
                 <td className="num">{r.dist != null ? `≈ ${fmtMeters(r.dist)}` : "—"}</td>

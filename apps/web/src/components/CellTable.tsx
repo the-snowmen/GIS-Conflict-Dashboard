@@ -96,10 +96,22 @@ export default function CellTable({ scores, activeCell, onPick, cap = 150 }: Pro
             >
               <td className="num dim">{i + 1}</td>
               <td>
-                <code className="cell-id">{c.cell_id.slice(0, 9)}…</code>
-                {c.is_hotspot && (
-                  <span className="hot-badge" title="high ticket volume and high conflict rate">hotspot</span>
-                )}
+                {/* The whole row stays clickable for pointers; this button is the keyboard/AT
+                    way in, and names the cell it drills so the action isn't a bare "drill". */}
+                <button
+                  type="button"
+                  className="row-action"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPick(c);
+                  }}
+                >
+                  <span className="sr-only">Drill into cell </span>
+                  <code className="cell-id">{c.cell_id.slice(0, 9)}…</code>
+                  {c.is_hotspot && (
+                    <span className="hot-badge" title="high ticket volume and high conflict rate">hotspot</span>
+                  )}
+                </button>
               </td>
               <td className="num">{c.index.toFixed(2)}</td>
               <td className="num">{c.ticket_count}</td>

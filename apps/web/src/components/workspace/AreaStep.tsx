@@ -22,6 +22,7 @@ export default function AreaStep({
   mapMode,
   filters,
   ticketsTotal,
+  ticketsLoading,
   drillCellId,
   importName,
   importInputRef,
@@ -39,6 +40,9 @@ export default function AreaStep({
   mapMode: Mode;
   filters: ReturnType<typeof useTicketFilters>;
   ticketsTotal: number;
+  /** DuckDB is still booting / loading the Parquet — the list is empty for that
+   *  reason, not because the filters excluded everything. */
+  ticketsLoading: boolean;
   drillCellId: string | null;
   importName: string | null;
   importInputRef: RefObject<HTMLInputElement>;
@@ -109,6 +113,7 @@ export default function AreaStep({
             <TicketPicker
               filters={filters}
               total={ticketsTotal}
+              loading={ticketsLoading}
               selectedId={null}
               onSelect={onSelectTicket}
               onEdit={onEditTicket}

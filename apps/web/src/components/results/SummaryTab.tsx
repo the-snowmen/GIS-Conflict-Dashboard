@@ -1,3 +1,4 @@
+import { bufferLabel } from "../../lib/geometry";
 import { ruleSummary } from "../../lib/ruleSummary";
 import type { ConflictRule, FacilityFacets } from "../../services/demo";
 import type { RulePreset, RunResult, WorkArea } from "../../types";
@@ -32,8 +33,7 @@ export default function SummaryTab({
     (p) => sameSet(p.rule.selfOwners, rule.selfOwners) && sameSet(p.rule.excludedStatuses, rule.excludedStatuses),
   )?.name;
   const ranTime = new Date(result.ranAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const bufferText =
-    area && area.geometry.type !== "Point" ? "drawn area (no buffer)" : `${result.radiusM} m (geodesic)`;
+  const bufferText = bufferLabel(area, result.radiusM);
   const statusSentence =
     result.conflictCount > 0
       ? `Conflict found — ${result.conflictCount} ${result.conflictCount === 1 ? "facility" : "facilities"} intersect the work area under the active rule.`

@@ -29,7 +29,8 @@ interface Props {
 // A dependency-free info tooltip: focusable trigger + role="tooltip" popover portaled
 // to <body> so its position:fixed resolves against the viewport (never clipped by the
 // scrolling rail or a transformed drawer). Opens on hover/focus/click; closes on
-// Escape (returns focus), blur, or outside click.
+// Escape, blur, or outside click. As the innermost surface it consumes Escape, so a
+// panel around it stays open (see the keydown listener below).
 export default function Info({ term, title, label }: Props) {
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -64,18 +65,33 @@ export default function Info({ term, title, label }: Props) {
       if (!wrapRef.current?.contains(e.target as Node) && !popRef.current?.contains(e.target as Node))
         setOpen(false);
     };
+    // Registered in the capture phase so this tooltip — the innermost open surface —
+    // gets Escape before the panels around it. Their listeners sit on `document` too,
+    // where a later stopPropagation() could not reach them. preventDefault() marks the
+    // key as spent (Escape has no default action here) so outer surfaces can stand down
+    // instead of closing along with the tooltip.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        suppressOpen.current = true;
-        setOpen(false);
-        btnRef.current?.focus();
-      }
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      const btn = btnRef.current;
+      // Only pull focus back if it is sitting in the popover we're about to remove;
+      // a hover-opened tooltip has no business moving the user's focus.
+      const restore = popRef.current?.contains(document.activeElement) ?? false;
+      setOpen(false);
+      if (!btn || !restore) return;
+      suppressOpen.current = true; // the refocus below would otherwise reopen us
+      // Deferred past React's commit, and skipped if the trigger went with it: focusing
+      // an element that unmounts in the same flush strands focus on <body>.
+      requestAnimationFrame(() => {
+        if (btn.isConnected) btn.focus();
+        else suppressOpen.current = false;
+      });
     };
     document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
 
