@@ -436,12 +436,57 @@ export class MapController {
     ]);
   }
 
+  /** Extra padding (px) for fits, on top of the per-call padding — the mobile
+   *  bottom sheet covers the lower part of the canvas, so fits aim for the
+   *  visible strip instead of the full viewport. 0/absent = no obstruction. */
+  private viewInset: { top: number; right: number; bottom: number; left: number } = {
+    top: 0, right: 0, bottom: 0, left: 0,
+  };
+
+  setViewInset(inset: Partial<{ top: number; right: number; bottom: number; left: number }> | null) {
+    this.viewInset = { top: 0, right: 0, bottom: 0, left: 0, ...(inset ?? {}) };
+  }
+
+  /** Per-call padding + the view inset, clamped so the total never exceeds the
+   *  canvas (maplibre errors out when padding leaves no room for the bounds). */
+  private fitPadding(padding: number): { top: number; right: number; bottom: number; left: number } {
+    const el = this.map.getContainer();
+    const pad = {
+      top: padding + this.viewInset.top,
+      right: padding + this.viewInset.right,
+      bottom: padding + this.viewInset.bottom,
+      left: padding + this.viewInset.left,
+    };
+    const maxV = Math.max(0, el.clientHeight - 80);
+    const maxH = Math.max(0, el.clientWidth - 80);
+    if (pad.top + pad.bottom > maxV) {
+      const scale = maxV / (pad.top + pad.bottom);
+      pad.top = Math.floor(pad.top * scale);
+      pad.bottom = Math.floor(pad.bottom * scale);
+    }
+    if (pad.left + pad.right > maxH) {
+      const scale = maxH / (pad.left + pad.right);
+      pad.left = Math.floor(pad.left * scale);
+      pad.right = Math.floor(pad.right * scale);
+    }
+    return pad;
+  }
+
+  /** Fly to a point, offset so it lands in the center of the *visible* map strip
+   *  (the part not covered by the mobile bottom sheet). Use for every locate-style
+   *  action instead of a raw map.flyTo. */
+  flyToPoint(center: [number, number], zoom: number, duration = 600) {
+    // Clamp so a tall sheet (full detent) can't push the target off the canvas.
+    const lift = Math.min(this.viewInset.bottom / 2, this.map.getContainer().clientHeight / 2 - 40);
+    this.map.flyTo({ center, zoom, offset: [0, -Math.max(0, lift)], duration });
+  }
+
   fitTo(fc: FeatureCollection, padding = 40, maxZoom?: number) {
     const b = bounds(fc);
     if (!b) return;
     // Only set maxZoom when given — passing `maxZoom: undefined` makes maplibre
     // compute Math.min(maxZoom, undefined) = NaN and throw "Invalid LngLat".
-    const opts: FitBoundsOptions = { padding, duration: 600 };
+    const opts: FitBoundsOptions = { padding: this.fitPadding(padding), duration: 600 };
     if (maxZoom !== undefined) opts.maxZoom = maxZoom;
     this.map.fitBounds(b, opts);
   }
@@ -453,7 +498,9 @@ export class MapController {
 
   /** Re-fit the map to the remembered dataset extent (the "zoom to data" control). */
   goHome() {
-    if (this.homeBounds) this.map.fitBounds(this.homeBounds, { padding: 60, duration: 600 });
+    if (this.homeBounds) {
+      this.map.fitBounds(this.homeBounds, { padding: this.fitPadding(60), duration: 600 });
+    }
   }
 
   /** A custom MapLibre control: one button that re-homes the view to the data extent. */

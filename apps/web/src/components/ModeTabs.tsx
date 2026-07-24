@@ -15,17 +15,21 @@ export default function ModeTabs({
         type="button"
         className={`mode-btn ${mode === "assess" ? "active" : ""}`}
         aria-pressed={mode === "assess"}
+        aria-label="Assess work area"
         onClick={() => onMode("assess")}
       >
-        Assess work area
+        <span className="mode-full" aria-hidden>Assess work area</span>
+        <span className="mode-short" aria-hidden>Assess</span>
       </button>
       <button
         type="button"
         className={`mode-btn ${mode === "screen" ? "active" : ""}`}
         aria-pressed={mode === "screen"}
+        aria-label="Screen portfolio"
         onClick={() => onMode("screen")}
       >
-        Screen portfolio
+        <span className="mode-full" aria-hidden>Screen portfolio</span>
+        <span className="mode-short" aria-hidden>Portfolio</span>
       </button>
     </div>
   );

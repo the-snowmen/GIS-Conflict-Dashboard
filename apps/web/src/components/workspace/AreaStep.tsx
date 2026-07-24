@@ -82,11 +82,18 @@ export default function AreaStep({
         <div className="ws-area-summary">
           <div className="ws-area-main">
             <strong>{area.label}</strong>
-            <span className="muted">
-              {area.geometry.type === "Point"
-                ? `${area.geometry.coordinates[1].toFixed(5)}, ${area.geometry.coordinates[0].toFixed(5)}`
-                : area.geometry.type}
-            </span>
+            {(() => {
+              // Point/coordinate labels already carry the coordinates — skip the
+              // detail line rather than repeat them directly underneath. Only for
+              // points: a non-point label could contain its type word by accident
+              // (e.g. an imported feature named "Untitled Polygon").
+              const detail =
+                area.geometry.type === "Point"
+                  ? `${area.geometry.coordinates[1].toFixed(5)}, ${area.geometry.coordinates[0].toFixed(5)}`
+                  : area.geometry.type;
+              const dup = area.geometry.type === "Point" && area.label.includes(detail);
+              return dup ? null : <span className="muted">{detail}</span>;
+            })()}
           </div>
           <div className="ws-area-actions">
             <button type="button" className="btn-inline ghost" onClick={onAreaClear}>Change</button>

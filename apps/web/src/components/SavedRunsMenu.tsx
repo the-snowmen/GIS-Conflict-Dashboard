@@ -52,7 +52,7 @@ export default function SavedRunsMenu({
         aria-label="Saved analyses"
         title="Saved analyses"
       >
-        ▤ Saved{runs.length > 0 && <span className="saved-count">{runs.length}</span>}
+        ▤<span className="saved-word"> Saved</span>{runs.length > 0 && <span className="saved-count">{runs.length}</span>}
       </button>
       {open && (
         <>

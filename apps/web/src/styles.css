@@ -78,6 +78,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   padding: 7px 16px; border: none; background: var(--panel-2); color: var(--muted);
 }
 .mode-btn + .mode-btn { border-left: 1px solid var(--line); }
+/* Each mode button carries a full and a short label; narrow screens swap them. */
+.mode-short { display: none; }
 .mode-btn:hover { color: var(--text); }
 .mode-btn.active { background: #20305a; color: var(--text); }
 .mode-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -757,29 +759,43 @@ a { color: var(--accent); }
   .drawer { animation: none; }
   .sk-row { animation: none; }
   .tray.assess .tray-body { transition: none; }
+  .sheet-chrome { transition: none; }
 }
 
 /* --- responsive: phone = a Maps-style bottom-sheet drawer over a full-bleed map ------- */
 @media (max-width: 900px) {
   .app.mobile {
     height: 100%;
-    /* height of the always-visible sheet chrome (grabber + Setup|Results) above the sheet body */
+    /* height of the always-visible sheet chrome (grabber + Setup|Results) above the sheet body.
+       Must match SHEET_CHROME_H in App.tsx. */
     --sheet-chrome-h: 76px;
+    /* Viewport-height unit for the sheet math: dvh where supported, so the sheet
+       tracks the iOS/Android dynamic URL bar instead of hiding under it. The
+       unitless --sheet-hn (set inline in App.tsx) picks the unit up here. */
+    --vhu: 1vh;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: var(--appbar-h) minmax(0, 1fr);
+    grid-template-rows: calc(var(--appbar-h) + env(safe-area-inset-top, 0px)) minmax(0, 1fr);
     grid-template-areas:
       "appbar"
       "map";
     overflow-x: hidden;
+  }
+  @supports (height: 1dvh) {
+    .app.mobile { --vhu: 1dvh; }
   }
 
   /* workspace (Setup) and tray (Results) become the two bottom-sheet pages */
   .app.mobile .workspace,
   .app.mobile .tray {
     position: fixed; left: 0; right: 0; bottom: 0;
-    height: var(--sheet-h); max-height: 94vh; z-index: 21;
+    height: calc(var(--sheet-hn, 52) * var(--vhu));
+    max-height: calc(94 * var(--vhu));
+    z-index: 21;
     border: none; padding: 10px 12px 16px;
-    background: var(--panel); overflow-y: auto;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+    background: var(--panel); overflow-y: auto; overflow-x: hidden;
   }
   .app.mobile[data-sheet="setup"] .tray { display: none; }
   .app.mobile[data-sheet="results"] .workspace { display: none; }
@@ -792,9 +808,10 @@ a { color: var(--accent); }
   .app.mobile .tray.screen .tray-body.cells { height: auto; min-height: 0; overflow: visible; }
   .app.mobile .tray.assess .tray-bar { cursor: default; flex-wrap: wrap; }
   .app.mobile .facilities-tab { display: block; }
+  /* wide result tables scroll sideways in their own port — the sheet itself never pans */
   .app.mobile .fac-scroll,
   .app.mobile .cell-table,
-  .app.mobile .cell-tickets { overflow: visible; }
+  .app.mobile .cell-tickets { overflow-x: auto; overflow-y: hidden; flex: none; height: auto; }
   .app.mobile .fac-table th { position: static; }
   .app.mobile .summary { padding: 12px 4px; }
   .app.mobile .summary-grid { grid-template-columns: 1fr; }
@@ -807,24 +824,38 @@ a { color: var(--accent); }
   .tray-empty p { margin: 0; padding: 24px 16px; max-width: 34ch; text-align: center; font-size: 13px; line-height: 1.6; }
 
   /* the header scrolls horizontally on a phone — pin the dropdown to the viewport */
-  .app.mobile .saved-pop { position: fixed; top: var(--appbar-h); left: 8px; right: 8px; width: auto; }
+  .app.mobile .saved-pop {
+    position: fixed; top: calc(var(--appbar-h) + env(safe-area-inset-top, 0px));
+    left: 8px; right: 8px; width: auto;
+  }
   /* same treatment for the layers popover: its 300px would overflow a narrow phone,
      and anchored to the button it runs under the sheet chrome. The floor keeps it
      usable at the tall detent, where the subtraction would otherwise clamp to 0.
      :not(.saved-pop) — the saved dropdown shares .map-pop but is pinned above. */
   .app.mobile .map-pop:not(.saved-pop) {
-    position: fixed; top: calc(var(--appbar-h) + var(--map-ctrl-top) + var(--map-ctrl-h) + 2px);
+    position: fixed;
+    top: calc(var(--appbar-h) + env(safe-area-inset-top, 0px) + var(--map-ctrl-top) + var(--map-ctrl-h) + 2px);
     left: 8px; right: 8px; width: auto;
-    max-height: max(160px, calc(100vh - var(--appbar-h) - var(--sheet-h) - var(--sheet-chrome-h) - 70px));
+    max-height: max(160px, calc(100 * var(--vhu) - var(--appbar-h) - env(safe-area-inset-top, 0px) - var(--sheet-hn, 52) * var(--vhu) - var(--sheet-chrome-h) - 70px));
     overflow-y: auto;
   }
 
   /* sheet chrome (grabber + Setup|Results) sits flush atop the active sheet */
   .sheet-chrome {
-    position: fixed; left: 0; right: 0; bottom: var(--sheet-h); z-index: 22;
+    position: fixed; left: 0; right: 0;
+    bottom: calc(var(--sheet-hn, 52) * var(--vhu));
+    z-index: 22;
     background: var(--panel); border-top: 1px solid var(--line);
     border-radius: 14px 14px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
     padding: 4px 12px 8px;
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+    /* soften the safe-area padding change when the collapsed class flips at drag release */
+    transition: padding-bottom 0.2s ease;
+  }
+  /* collapsed: the chrome IS the bottom edge — keep it clear of the home indicator */
+  .app.mobile.sheet-collapsed .sheet-chrome {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   }
   .sheet-grab { display: grid; place-items: center; padding: 6px 0 4px; touch-action: none; }
   .sheet-handle {
@@ -854,11 +885,31 @@ a { color: var(--accent); }
   .maplibregl-ctrl-attrib.maplibregl-compact.maplibregl-compact-show .maplibregl-ctrl-attrib-inner { display: block !important; }
 
   /* keep map controls clear of the sheet body AND the chrome bar above it */
-  .app.mobile .maplibregl-ctrl-bottom-right { bottom: calc(var(--sheet-h) + var(--sheet-chrome-h) + 8px); }
+  .app.mobile .maplibregl-ctrl-bottom-right {
+    bottom: calc(var(--sheet-hn, 52) * var(--vhu) + var(--sheet-chrome-h) + 8px);
+    right: env(safe-area-inset-right, 0px);
+  }
+  /* collapsed: the chrome gains safe-area padding (rule above) — lift the controls past it */
+  .app.mobile.sheet-collapsed .maplibregl-ctrl-bottom-right {
+    bottom: calc(var(--sheet-chrome-h) + 8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* safe-area: the Layers anchor positions against the viewport, so it needs the
+     same notch compensation the appbar row got */
+  .app.mobile .map-pop-anchor {
+    top: calc(var(--appbar-h) + env(safe-area-inset-top, 0px) + var(--map-ctrl-top));
+    right: max(12px, env(safe-area-inset-right, 0px));
+  }
 
   /* the header is wider than a phone: let it scroll horizontally on its own
-     instead of dragging the whole page sideways */
-  .app.mobile .appbar { overflow-x: auto; scrollbar-width: none; }
+     instead of dragging the whole page sideways (a fallback — the trims below
+     make everything fit at common phone widths) */
+  .app.mobile .appbar {
+    overflow-x: auto; scrollbar-width: none;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: max(14px, env(safe-area-inset-left, 0px));
+    padding-right: max(14px, env(safe-area-inset-right, 0px));
+  }
   .app.mobile .appbar::-webkit-scrollbar { display: none; }
 
   /* header trims — the bar scrolls sideways here, so drop the centering auto margins */
@@ -894,6 +945,17 @@ a { color: var(--accent); }
   .crumb-exit { min-height: 44px; min-width: 44px; }
   .filter-clear { min-height: 44px; }
   .sheet-grab { padding: 12px 0 10px; }
+  /* the taller grab + 46px seg buttons grow the chrome past its 76px default —
+     keep the offset consumers (map controls, view-inset JS) in sync */
+  .app.mobile { --sheet-chrome-h: 88px; }
+}
+
+/* phone-width bars: swap the mode tabs to their short labels so the whole
+   appbar (tabs + Saved + help) fits without scrolling */
+@media (max-width: 640px) {
+  .mode-full { display: none; }
+  .mode-short { display: inline; }
+  .mode-btn { padding: 7px 12px; }
 }
 
 /* narrow phones: drop the trailing word so the title reads "GIS Conflict" (no ellipsis) */
@@ -901,8 +963,19 @@ a { color: var(--accent); }
   .h1-rest { display: none; }
 }
 
+/* narrowest phones only: the Saved button goes icon-only (the ▤ glyph + count badge
+   + aria-label keep the meaning); wider phones keep the word for discoverability */
+@media (max-width: 360px) {
+  .saved-word { display: none; }
+}
+
 /* very narrow phones */
 @media (max-width: 390px) {
-  .appbar { gap: 8px; padding: 0 8px; }
+  .appbar,
+  .app.mobile .appbar {
+    gap: 8px;
+    padding-left: max(8px, env(safe-area-inset-left, 0px));
+    padding-right: max(8px, env(safe-area-inset-right, 0px));
+  }
   .welcome { font-size: 12px; padding: 8px 10px; }
 }

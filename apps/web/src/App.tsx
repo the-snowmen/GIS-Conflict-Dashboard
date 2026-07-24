@@ -84,6 +84,10 @@ import type {
 const sameSet = (a: string[], b: string[]): boolean =>
   a.length === b.length && [...a].sort().join("\0") === [...b].sort().join("\0");
 
+// Height (px) of the mobile sheet chrome (grabber + Setup|Results) that rides above
+// the sheet body — must match --sheet-chrome-h in styles.css.
+const SHEET_CHROME_H = 76;
+
 export default function App() {
   const mapEl = useRef<HTMLDivElement>(null);
   const ctrl = useRef<MapController | null>(null);
@@ -206,6 +210,25 @@ export default function App() {
     if (runStarted || newResult || facPicked) selectTab("results");
   }, [isMobile, result, status, selectedFacility, selectTab]);
 
+  // On the phone the bottom sheet covers the lower part of the map — tell the
+  // controller so fits and flyToPoint frame features in the visible strip. The
+  // latest inset also lands in a ref: the boot effect below creates the controller
+  // *after* this effect first runs and must apply the inset before its initial fit.
+  const viewInsetRef = useRef(0);
+  useEffect(() => {
+    const update = () => {
+      // Prefer the live CSS value — pointer:coarse grows the chrome past the constant.
+      const el = document.querySelector(".app");
+      const cssChrome = el ? parseFloat(getComputedStyle(el).getPropertyValue("--sheet-chrome-h")) : NaN;
+      const chromeH = Number.isFinite(cssChrome) ? cssChrome : SHEET_CHROME_H;
+      viewInsetRef.current = isMobile ? (sheetH / 100) * window.innerHeight + chromeH : 0;
+      ctrl.current?.setViewInset(isMobile ? { bottom: viewInsetRef.current } : null);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [isMobile, sheetH, phase]);
+
   // The ticket's recorded intake count, for the summary's run-vs-intake comparison.
   const intakeCount = useMemo(() => {
     if (!area?.ticketId) return null;
@@ -217,6 +240,9 @@ export default function App() {
     if (!mapEl.current || ctrl.current) return;
     const c = new MapController(mapEl.current);
     ctrl.current = c;
+    // The inset effect ran before this controller existed — apply the current
+    // value now so the boot-time fitTo below already respects the bottom sheet.
+    if (viewInsetRef.current > 0) c.setViewInset({ bottom: viewInsetRef.current });
     c.whenReady(async () => {
       try {
         c.initLayers();
@@ -329,7 +355,7 @@ export default function App() {
         label: `Point ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
         geometry: { type: "Point", coordinates: [lng, lat] },
       });
-      c?.map.flyTo({ center: [lng, lat], zoom: Math.max(c.map.getZoom(), 13), duration: 600 });
+      c?.flyToPoint([lng, lat], Math.max(c.map.getZoom(), 13));
     },
     [setArea],
   );
@@ -368,12 +394,16 @@ export default function App() {
       if (m === "screen") {
         closeFacilityDrawer();
         c?.setAssessLayersVisible(false);
+        // Portfolio reads at metro altitude. Arriving from a work-area zoom, one
+        // hex fills the whole viewport — pull back to the dataset extent. Only on
+        // a real mode change, and never mid-drill (the drilled hex is the context).
+        if (c && appMode !== "screen" && !drillCellId && c.map.getZoom() > 12) c.goHome();
       } else {
         c?.setAssessLayersVisible(true);
       }
       setAppMode(m);
     },
-    [endTicketEdit, cancelMapMode, closeFacilityDrawer],
+    [endTicketEdit, cancelMapMode, closeFacilityDrawer, appMode, drillCellId],
   );
 
   // S4→T1 hand-off: open a drilled ticket as the work area. The drill id survives,
@@ -382,13 +412,13 @@ export default function App() {
     (t: MergedTicket) => {
       setTicketArea(t.ticket_id, t.lon, t.lat);
       goMode("assess");
-      ctrl.current?.map.flyTo({ center: [t.lon, t.lat], zoom: Math.max(ctrl.current.map.getZoom(), 13), duration: 600 });
+      ctrl.current?.flyToPoint([t.lon, t.lat], Math.max(ctrl.current.map.getZoom(), 13));
     },
     [setTicketArea, goMode],
   );
 
   const locateTicket = useCallback((t: MergedTicket) => {
-    ctrl.current?.map.flyTo({ center: [t.lon, t.lat], zoom: Math.max(ctrl.current.map.getZoom(), 13), duration: 600 });
+    ctrl.current?.flyToPoint([t.lon, t.lat], Math.max(ctrl.current.map.getZoom(), 13));
   }, []);
 
   // --- feature inspection --------------------------------------------------
@@ -629,7 +659,7 @@ export default function App() {
           })),
       };
       c.setData("tickets", subset);
-      c.map.flyTo({ center: cell.centroid, zoom: Math.max(c.map.getZoom(), 11), duration: 600 });
+      c.flyToPoint(cell.centroid, Math.max(c.map.getZoom(), 11));
       c.flashCell(cell.geometry); // pulse the picked hex so it's identifiable on the map
       // Stay in screen mode: the workspace shows the breadcrumb + metrics, the tray
       // lists member tickets. The mode flip happens only via the "Assess" hand-off.
@@ -938,7 +968,7 @@ export default function App() {
     <div
       className={`app${isMobile ? ` mobile sheet-${sheetDetent}` : ""}`}
       data-sheet={isMobile ? sheetTab : undefined}
-      style={isMobile ? ({ "--sheet-h": `${sheetH}vh` } as CSSProperties) : undefined}
+      style={isMobile ? ({ "--sheet-hn": `${sheetH}` } as CSSProperties) : undefined}
     >
       <a className="skip-link" href="#main-map">Skip to map</a>
       <div className="sr-only" role="status" aria-live="polite">{liveMsg}</div>
@@ -997,7 +1027,7 @@ export default function App() {
                 onImportFile={(f) => void onKmz(f)}
                 onSelectTicket={(t) => {
                   setTicketArea(t.ticket_id, t.lon, t.lat);
-                  ctrl.current?.map.flyTo({ center: [t.lon, t.lat], zoom: 14 });
+                  ctrl.current?.flyToPoint([t.lon, t.lat], 14);
                 }}
                 onEditTicket={startEdit}
                 onNewTicket={startAddTicket}

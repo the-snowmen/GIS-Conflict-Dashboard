@@ -39,7 +39,7 @@ export function useFacilityDetail(
       }
       if (fly) {
         const center = lineCentroid(f.geometry) as [number, number];
-        c.map.flyTo({ center, zoom: Math.max(c.map.getZoom(), 13), duration: 600 });
+        c.flyToPoint(center, Math.max(c.map.getZoom(), 13));
       }
       c.highlightConflictFacility(f.geometry, false); // sticky (no pulse)
     },
