@@ -63,7 +63,7 @@ export function useKmzImport(ctrl: RefObject<MapController | null>) {
       return [{ id: `import-${i}`, name: String(props.name ?? props.Name ?? `Imported feature ${i + 1}`), geometry: f.geometry }];
     });
     fileNameRef.current = file.name;
-    loadFeatures(c, `${file.name} — ${imported.length} selectable features`, imported, true);
+    loadFeatures(c, `${file.name} — ${imported.length} selectable feature${imported.length === 1 ? "" : "s"}`, imported, true);
   }, [ctrl, loadFeatures]);
 
   const selectImported = useCallback((id: string): ImportedAoiFeature | null => {
@@ -110,7 +110,7 @@ export function useKmzImport(ctrl: RefObject<MapController | null>) {
         return [{ id: `import-${i}`, name: String(props.name ?? `Imported feature ${i + 1}`), geometry: f.geometry }];
       });
       fileNameRef.current = name;
-      loadFeatures(c, `${name} — ${imported.length} selectable features`, imported, false);
+      loadFeatures(c, `${name} — ${imported.length} selectable feature${imported.length === 1 ? "" : "s"}`, imported, false);
     },
     [ctrl, loadFeatures],
   );

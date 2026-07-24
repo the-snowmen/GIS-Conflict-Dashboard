@@ -46,6 +46,10 @@ export function useKeyboardShortcuts({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || helpOpen) return;
+      // A nearer surface (e.g. an Info glossary tooltip) may have already claimed this
+      // Escape in the capture phase and marked it spent — don't also collapse the
+      // drawer / sheet underneath it.
+      if (e.defaultPrevented) return;
       if (drawerOpen) closeDrawer();
       else if (editing) cancelEditing();
       else if (mapMode !== "idle") cancelMapMode();

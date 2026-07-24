@@ -186,56 +186,69 @@ export function useAnalysisRun({
       }
       setStatus("running");
       cancelCapture(); // the previous run's snapshot is no longer the report's
+      // The previous run's pinned facility highlight is no longer evidence — drop it
+      // so a re-run can't strand a bright line on a facility this run may not flag.
+      c.highlightConflictFacility(null);
       onAnnounce("Running analysis…");
       const aoi = aoiOf(a, radiusM);
       const at = anchorOf(a);
       const via = a.geometry.type === "Point" ? `${radiusM} m buffer on ${a.label}` : a.label;
-      const res = await conflictForAoi(aoi, r);
-      const jur = await jurisdictionFor(at[0], at[1]);
-      // Superseded while the queries ran: the area this evidence describes is no
-      // longer the one on screen, so this run gets to change nothing at all.
-      if (seq !== runSeq.current) return;
-      const facilities: ConflictFacility[] = res.facilities.features
-        .map((f) => {
-          const p = (f.properties ?? {}) as Record<string, unknown>;
-          return {
-            id: p.id as number | undefined,
-            asset_ref: p.asset_ref as string | undefined,
-            owner: p.owner as string | undefined,
-            voltage_class: p.voltage_class as string | undefined,
-            nominal_kv: p.nominal_kv as number | undefined,
-            asset_type: p.asset_type as string | undefined,
-            status: p.status as string | undefined,
-            geometry: f.geometry ?? undefined,
-            dist_m: f.geometry ? distPointToGeomM(at, f.geometry) : undefined,
-          };
-        })
-        // Nearest conflicting facility first — the itemized "why", ordered by proximity.
-        .sort((x, y) => (x.dist_m ?? Infinity) - (y.dist_m ?? Infinity));
-      c.setData("aoi", asFC(aoi));
-      c.setAoiStyle("ran");
-      c.setData("conflict", res.facilities);
-      setResult({
-        ranAt: new Date().toISOString(),
-        aoiGeometry: aoi,
-        conflictCount: res.count,
-        jurisdiction: jur,
-        facilities,
-        via,
-        radiusM,
-        rule: r,
-      });
-      setStatus("fresh");
-      const where = jur ? `in ${jur}` : "outside the coverage area";
-      onAnnounce(
-        res.count > 0
-          ? `Analysis complete: ${res.count} facility conflict${res.count === 1 ? "" : "s"} ${where}.`
-          : `Analysis complete: no conflicts ${where}.`,
-      );
-      // maxZoom keeps a small buffer from slamming the view to a deep-zoom empty void.
-      c.fitTo(asFC(aoi), 120, 15);
-      // Report map image: capture once the framed view (AOI + conflict lines) settles.
-      captureOnIdle(c);
+      try {
+        const res = await conflictForAoi(aoi, r);
+        const jur = await jurisdictionFor(at[0], at[1]);
+        // Superseded while the queries ran: the area this evidence describes is no
+        // longer the one on screen, so this run gets to change nothing at all.
+        if (seq !== runSeq.current) return;
+        const facilities: ConflictFacility[] = res.facilities.features
+          .map((f) => {
+            const p = (f.properties ?? {}) as Record<string, unknown>;
+            return {
+              id: p.id as number | undefined,
+              asset_ref: p.asset_ref as string | undefined,
+              owner: p.owner as string | undefined,
+              voltage_class: p.voltage_class as string | undefined,
+              nominal_kv: p.nominal_kv as number | undefined,
+              asset_type: p.asset_type as string | undefined,
+              status: p.status as string | undefined,
+              geometry: f.geometry ?? undefined,
+              dist_m: f.geometry ? distPointToGeomM(at, f.geometry) : undefined,
+            };
+          })
+          // Nearest conflicting facility first — the itemized "why", ordered by proximity.
+          .sort((x, y) => (x.dist_m ?? Infinity) - (y.dist_m ?? Infinity));
+        c.setData("aoi", asFC(aoi));
+        c.setAoiStyle("ran");
+        c.setData("conflict", res.facilities);
+        setResult({
+          ranAt: new Date().toISOString(),
+          aoiGeometry: aoi,
+          conflictCount: res.count,
+          jurisdiction: jur,
+          facilities,
+          via,
+          radiusM,
+          rule: r,
+        });
+        setStatus("fresh");
+        const where = jur ? `in ${jur}` : "outside the coverage area";
+        onAnnounce(
+          res.count > 0
+            ? `Analysis complete: ${res.count} facility conflict${res.count === 1 ? "" : "s"} ${where}.`
+            : `Analysis complete: no conflicts ${where}.`,
+        );
+        // maxZoom keeps a small buffer from slamming the view to a deep-zoom empty void.
+        c.fitTo(asFC(aoi), 120, 15);
+        // Report map image: capture once the framed view (AOI + conflict lines) settles.
+        captureOnIdle(c);
+      } catch (e) {
+        // A failed query (dropped connection, DuckDB error) must not strand the UI in
+        // RUNNING forever: surface an error state the user can retry from. A superseded
+        // run stays silent — its failure is irrelevant to whatever replaced it.
+        if (seq !== runSeq.current) return;
+        console.error("[run] analysis failed:", e);
+        setStatus("error");
+        onAnnounce("Analysis failed — please try running it again.");
+      }
     },
     [ctrl, area, radiusM, onAnnounce, onSnapshot, cancelCapture, captureOnIdle],
   );

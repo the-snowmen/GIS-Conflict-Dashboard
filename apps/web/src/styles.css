@@ -406,7 +406,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .app { display: block; height: auto; }
   .app > *:not(.print-report) { display: none !important; }
   .print-report { display: block; color: #111; }
-  .print-report .rb { max-width: none; margin: 0; border: none; border-radius: 0; padding: 0; gap: 12px; }
+  .print-report .rb { max-width: none; margin: 0; border: none; border-radius: 0; padding: 0; gap: 12px; background: #fff; color: #111; }
   .print-report .rb-title { font-size: 20pt; }
   .print-report .rb-sub, .print-report .rb-foot, .print-report .rb-assump,
   .print-report .rb-map figcaption { color: #555; }
@@ -734,7 +734,18 @@ a { color: var(--accent); }
 .maplibregl-ctrl-attrib.maplibregl-compact:focus-within .maplibregl-ctrl-attrib-inner { display: block !important; }
 .maplibregl-ctrl-attrib-inner a { color: var(--accent); }
 
-/* "zoom to data" map control button glyph */
+/* map controls (zoom in/out + "zoom to data") — themed to match the dark UI, since
+   maplibre ships them as a white button group by default */
+.maplibregl-ctrl-group {
+  background: rgba(15,20,32,0.92); border: 1px solid var(--line);
+  border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.4); overflow: hidden;
+}
+.maplibregl-ctrl-group button { background: transparent; color: var(--text); }
+.maplibregl-ctrl-group button + button { border-top: 1px solid var(--line); }
+.maplibregl-ctrl-group button:hover { background: var(--panel-2); }
+.maplibregl-ctrl-group button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* the +/− glyphs are dark sprite images — invert them for the dark control */
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1) brightness(1.4); }
 .ml-home-btn { font-size: 16px; line-height: 1; }
 
 /* --- respect reduced-motion: drop the layout/sheet transitions ------------------------ */
@@ -872,6 +883,7 @@ a { color: var(--accent); }
   .seg-btn { min-height: 46px; }
   .tray-tab { min-height: 40px; padding: 8px 14px; }
   .src-chip { min-height: 44px; }
+  .tk-main { min-height: 44px; }
   .sheet-status { min-height: 44px; }
   .map-pop-btn { min-height: 44px; }
   .btn { min-height: 44px; }

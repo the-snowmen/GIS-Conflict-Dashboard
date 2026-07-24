@@ -362,9 +362,18 @@ export default function App() {
       c?.hideInspectPopup();
       endTicketEdit();
       cancelMapMode();
+      // The contextual drawer and the assess overlays belong to Assess. Leaving for
+      // Screen closes the drawer and hides the AOI/conflict lines (which otherwise
+      // stay drawn — and clickable — over the hex choropleth); returning repaints them.
+      if (m === "screen") {
+        closeFacilityDrawer();
+        c?.setAssessLayersVisible(false);
+      } else {
+        c?.setAssessLayersVisible(true);
+      }
       setAppMode(m);
     },
-    [endTicketEdit, cancelMapMode],
+    [endTicketEdit, cancelMapMode, closeFacilityDrawer],
   );
 
   // S4→T1 hand-off: open a drilled ticket as the work area. The drill id survives,
@@ -490,6 +499,7 @@ export default function App() {
       const c = ctrl.current;
       if (!c) return;
       c.disableBufferClick();
+      c.disableAddPoint(); // an in-progress "new ticket" placement would otherwise stay armed
       c.stopPolygonDraw();
       c.hideInspectPopup();
       setMapMode("idle");

@@ -80,9 +80,18 @@ export function runsDbAvailable(): boolean {
 function unavailable(): boolean {
   return typeof indexedDB === "undefined" || !available;
 }
+// Latch the store off for the session — only for a *structural* failure (the database
+// can't be opened at all: private mode, blocked upgrade, no IndexedDB). A one-off
+// operation error (quota, an aborted transaction) must NOT do this, or a single failed
+// write would blank every future read of the saved-runs list.
 function markUnavailable(e: unknown): void {
   available = false;
   console.warn("[runs] IndexedDB unavailable — saved runs are session-only this browser:", e);
+}
+// A per-operation failure: log it, but leave the store available so the next read/write
+// can still succeed. The caller returns its own safe fallback.
+function opFailed(e: unknown): void {
+  console.warn("[runs] IndexedDB operation failed (store still available):", e);
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -121,6 +130,12 @@ function withStore<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => I
           reject(tx.error);
         };
       }),
+    (e) => {
+      // The database itself couldn't be opened — a structural failure. This is the
+      // only condition that latches the store off for the session.
+      markUnavailable(e);
+      throw e;
+    },
   );
 }
 
@@ -130,7 +145,7 @@ export async function listRuns(): Promise<AnalysisRun[]> {
     const runs = await withStore("readonly", (s) => s.getAll() as IDBRequest<AnalysisRun[]>);
     return runs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } catch (e) {
-    markUnavailable(e);
+    opFailed(e);
     return [];
   }
 }
@@ -141,7 +156,7 @@ export async function putRun(run: AnalysisRun): Promise<boolean> {
     await withStore("readwrite", (s) => s.put(run));
     return true;
   } catch (e) {
-    markUnavailable(e);
+    opFailed(e);
     return false;
   }
 }
@@ -151,7 +166,7 @@ export async function deleteRun(id: string): Promise<boolean> {
     await withStore("readwrite", (s) => s.delete(id));
     return true;
   } catch (e) {
-    markUnavailable(e);
+    opFailed(e);
     return false;
   }
 }
@@ -162,7 +177,7 @@ export async function renameRun(id: string, name: string): Promise<boolean> {
     if (!run) return false;
     return putRun({ ...run, name, updatedAt: new Date().toISOString() });
   } catch (e) {
-    markUnavailable(e);
+    opFailed(e);
     return false;
   }
 }

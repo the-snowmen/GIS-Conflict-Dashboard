@@ -22,7 +22,7 @@ export interface WorkArea {
 // Lifecycle of an analysis run (lib/useAnalysisRun.ts): draft = configured, not run;
 // running = queries in flight; fresh = results match the current config; stale =
 // config changed after the run (results still shown, from the previous config).
-export type RunStatus = "draft" | "running" | "fresh" | "stale";
+export type RunStatus = "draft" | "running" | "fresh" | "stale" | "error";
 
 // The result snapshot shown in the results tray. Carries the configuration it was
 // produced under (radius + rule) so the summary, exports, and saved runs are exact.

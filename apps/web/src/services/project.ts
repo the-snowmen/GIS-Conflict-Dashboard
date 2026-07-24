@@ -4,7 +4,15 @@
 // nothing local is ever deleted by an import).
 import type { FeatureCollection, Geometry } from "geojson";
 import { downloadText, exportName } from "./export";
-import { loadOverlay, mergeOverlay, type Overlay } from "./overlay";
+import {
+  loadOverlay,
+  mergeOverlay,
+  type Overlay,
+  type OverlayTicket,
+  type Priority,
+  type WorkType,
+  type WorkflowStatus,
+} from "./overlay";
 import { areaLabel, defaultRunName, putRun, type AnalysisRun, type SavedArea } from "./runs";
 import type { ConflictRule } from "./demo";
 import type { ConflictFacility, RunResult } from "../types";
@@ -106,6 +114,69 @@ function asResult(v: unknown, area: SavedArea, radiusM: number, rule: ConflictRu
   };
 }
 
+// --- ticket-overlay validation ------------------------------------------------
+// The imported overlay is written straight to localStorage by mergeOverlay and then
+// read back — unvalidated — by every ticket consumer, so a malformed `added` record
+// (missing id, non-numeric coordinates) would corrupt local ticket state with no way
+// out through the UI. Coerce each record to a real OverlayTicket; drop what can't be.
+
+const WORK_TYPES: readonly WorkType[] = ["locate", "design", "survey", "permit"];
+const PRIORITIES: readonly Priority[] = ["low", "normal", "high"];
+const WORKFLOWS: readonly WorkflowStatus[] = ["new", "in_review", "resolved"];
+const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T =>
+  typeof v === "string" && (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
+
+function asOverlayTicket(v: unknown, now: string): OverlayTicket | null {
+  if (!isObj(v)) return null;
+  // Dereferenced directly (rendered on the map, keyed by id) — these must be real.
+  if (typeof v.ticket_id !== "string" || !v.ticket_id) return null;
+  if (!Number.isFinite(v.lon) || !Number.isFinite(v.lat)) return null;
+  return {
+    ticket_id: v.ticket_id,
+    source: strOr(v.source, "permit_intake"),
+    work_type: oneOf(v.work_type, WORK_TYPES, "permit"),
+    priority: oneOf(v.priority, PRIORITIES, "normal"),
+    workflow_status: oneOf(v.workflow_status, WORKFLOWS, "new"),
+    intake_conflict_count: numOr(v.intake_conflict_count, 0),
+    radius_m: numOr(v.radius_m, 100),
+    lon: v.lon as number,
+    lat: v.lat as number,
+    county_geoid: typeof v.county_geoid === "string" ? v.county_geoid : null,
+    created_at: strOr(v.created_at, now),
+    origin: "user",
+  };
+}
+
+// A per-field edit patch: keep only recognized keys with the right type.
+function asOverlayPatch(v: Record<string, unknown>): Partial<OverlayTicket> {
+  const p: Partial<OverlayTicket> = {};
+  if (typeof v.source === "string") p.source = v.source;
+  if (typeof v.work_type === "string" && (WORK_TYPES as readonly string[]).includes(v.work_type)) p.work_type = v.work_type as WorkType;
+  if (typeof v.priority === "string" && (PRIORITIES as readonly string[]).includes(v.priority)) p.priority = v.priority as Priority;
+  if (typeof v.workflow_status === "string" && (WORKFLOWS as readonly string[]).includes(v.workflow_status)) p.workflow_status = v.workflow_status as WorkflowStatus;
+  if (Number.isFinite(v.intake_conflict_count)) p.intake_conflict_count = v.intake_conflict_count as number;
+  if (Number.isFinite(v.radius_m)) p.radius_m = v.radius_m as number;
+  if (Number.isFinite(v.lon)) p.lon = v.lon as number;
+  if (Number.isFinite(v.lat)) p.lat = v.lat as number;
+  if (typeof v.county_geoid === "string" || v.county_geoid === null) p.county_geoid = v.county_geoid as string | null;
+  return p;
+}
+
+function asOverlayImport(v: unknown, now: string): Partial<Overlay> {
+  if (!isObj(v)) return {};
+  const added = (Array.isArray(v.added) ? v.added : [])
+    .map((t) => asOverlayTicket(t, now))
+    .filter((t): t is OverlayTicket => t !== null);
+  const edited: Record<string, Partial<OverlayTicket>> = {};
+  if (isObj(v.edited)) {
+    for (const [id, patch] of Object.entries(v.edited)) {
+      if (typeof id === "string" && isObj(patch)) edited[id] = asOverlayPatch(patch);
+    }
+  }
+  const deleted = Array.isArray(v.deleted) ? v.deleted.filter((x): x is string => typeof x === "string") : [];
+  return { added, edited, deleted };
+}
+
 function asRun(v: unknown, now: string): AnalysisRun {
   if (!isObj(v) || typeof v.id !== "string" || !v.id) malformed();
   const area = asArea(v.area);
@@ -161,7 +232,7 @@ export function parseProject(text: string): ProjectFile {
     exportedAt: strOr(p.exportedAt, now),
     region: strOr(p.region, ""),
     runs: p.runs.map((r) => asRun(r, now)),
-    ticketOverlay: isObj(p.ticketOverlay) ? p.ticketOverlay : {},
+    ticketOverlay: asOverlayImport(p.ticketOverlay, now),
   };
 }
 

@@ -416,6 +416,15 @@ export class MapController {
     if (!visible) this.flashCell(null); // drop any lingering pulse when leaving the altitude
   }
 
+  /** Show/hide the assess overlays (AOI + conflict lines + facility highlight) so a
+   *  run's result doesn't bleed onto the map — or stay clickable over it — while the
+   *  user is in Screen mode. Data is preserved, so returning to Assess repaints it. */
+  setAssessLayersVisible(visible: boolean) {
+    for (const id of ["aoi-fill", "aoi-line", "conflict-line", "conflict-highlight"]) {
+      this.setLayerVisible(id, visible);
+    }
+  }
+
   /** Dim cells scoring below `threshold` (0..1 over score01) so the hot set stands out. */
   setCellThreshold(threshold: number) {
     if (this.destroyed || !this.map.getLayer("cells-fill")) return;

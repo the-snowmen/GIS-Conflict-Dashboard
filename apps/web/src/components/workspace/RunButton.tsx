@@ -14,7 +14,8 @@ export default function RunButton({
   onRun: () => void;
 }) {
   const running = status === "running";
-  const label = running ? "Analyzing…" : stale ? "Re-run analysis" : "Run analysis";
+  const errored = status === "error";
+  const label = running ? "Analyzing…" : errored ? "Try again" : stale ? "Re-run analysis" : "Run analysis";
   return (
     <section className="ws-step ws-run" aria-label="Step 3: run the analysis">
       <button
@@ -26,7 +27,12 @@ export default function RunButton({
       >
         {label}
       </button>
-      {stale && (
+      {errored && (
+        <p className="stale-note" role="alert">
+          The analysis couldn't complete — please try running it again.
+        </p>
+      )}
+      {stale && !errored && (
         <p className="stale-note">
           Settings changed — the results below are from the previous configuration.
         </p>

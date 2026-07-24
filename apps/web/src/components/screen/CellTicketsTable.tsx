@@ -47,7 +47,10 @@ export default function CellTicketsTable({
     if (k === sortKey) setAsc((v) => !v);
     else {
       setSortKey(k);
-      setAsc(k === "ticket" || k === "type" || k === "county");
+      // Text columns default A→Z; numeric ones default to the useful end first —
+      // most conflicts first (desc), and highest priority first (asc, since
+      // PRIORITY_RANK maps high→0).
+      setAsc(k === "ticket" || k === "type" || k === "county" || k === "priority");
     }
   }
 

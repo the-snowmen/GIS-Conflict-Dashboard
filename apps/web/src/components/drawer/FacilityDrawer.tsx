@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { fmtMeters } from "../../lib/geometry";
 import { statusLabel } from "../../lib/facilities";
 import type { ConflictFacility } from "../../types";
@@ -24,8 +25,52 @@ export default function FacilityDrawer({
   // Geometry-type heuristic, labeled approximate like distances: a point facility
   // lies inside the AOI; a line crosses into it.
   const relationship = facility.geometry?.type === "Point" ? "inside the area" : "intersects the area";
+
+  // Desktop: the drawer floats over the map as a modal dialog, so it gets focus on
+  // open, traps Tab, and returns focus to the opener (the evidence row) on close.
+  // In the mobile sheet it flows inline with the results, so no trap applies there.
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (inSheet) return;
+    const node = ref.current;
+    if (!node) return;
+    const opener = document.activeElement as HTMLElement | null;
+    const focusables = () =>
+      Array.from(
+        node.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => !el.hasAttribute("disabled"));
+    focusables()[0]?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const f = focusables();
+      if (!f.length) return;
+      const first = f[0];
+      const last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    node.addEventListener("keydown", onKey);
+    return () => {
+      node.removeEventListener("keydown", onKey);
+      opener?.focus?.();
+    };
+  }, [inSheet]);
+
   return (
-    <aside className={`drawer${inSheet ? " in-sheet" : ""}`} role="dialog" aria-label={`Facility ${name}`}>
+    <aside
+      ref={ref}
+      className={`drawer${inSheet ? " in-sheet" : ""}`}
+      role="dialog"
+      aria-modal={inSheet ? undefined : true}
+      aria-label={`Facility ${name}`}
+    >
       <div className="drawer-head">
         <h2>{name}{facility.id != null && <span className="drawer-id">#{facility.id}</span>}</h2>
         <button className="tp-close" onClick={onClose} aria-label="Close facility detail">✕</button>
