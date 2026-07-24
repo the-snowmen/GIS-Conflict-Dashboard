@@ -1,9 +1,8 @@
 # GIS Conflict Dashboard — Redesign Package
 
-**Status:** approved as the design baseline; implementation pending design review.
-This document is the tracked design doc for the redesign (work happens on the `dev-kimi`
-branch). It defines the experience and information architecture; code changes begin with
-Phase A (§10) only after this package is reviewed.
+**Status:** implemented. This document is the tracked design doc the redesign was built
+from; the shipped app follows it (phases A–G of §10 are in place). It is kept as the
+design record — §1's critique describes the *pre-redesign* app, in the past tense now.
 
 The package below follows the brief (`KIMI_REDESIGN_BRIEF.md`) and is grounded in the current
 code: `apps/web/src/{App.tsx,types.ts,styles.css,map.ts}`, `services/{demo,duckdb,geokit,export,overlay}.ts`,
@@ -849,9 +848,8 @@ how users expect "Save" to behave.
 
 ## Status & next steps
 
-- This package is the design baseline for the redesign, developed on the `dev-kimi` branch.
-- Next: design review of the critique (§1), IA (§3), wireframes (§4–5), data/persistence models
-  (§7–8), and phase plan (§10). On sign-off, implementation proceeds phase-by-phase per §10,
-  each phase an independently reviewable diff.
-- Open user-test items to settle before/during early phases are listed in §11 (mode names,
-  Run-button discoverability and staleness, preset naming, tray-vs-rail, save semantics).
+- Implemented: the shipped app follows this package — the assess workflow (W1–W5), the
+  screen-portfolio workflow (W6–W7), the results tray, saved runs + portable projects,
+  report/CSV/GeoJSON/KMZ export, and the mobile Setup/Results sheet.
+- The open user-test items in §11 (mode names, Run-button discoverability and staleness,
+  preset naming, tray-vs-rail, save semantics) remain candidates for real-user validation.

@@ -95,6 +95,22 @@ async function clickMatch(re) {
   if (!ok) console.warn(`  (button matching ${re} not found)`);
   return ok;
 }
+async function setSearch(text) {
+  await evaluate(`(() => {
+    const el = document.querySelector('input[name="ticket-search"]');
+    if (!el) return false;
+    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    set.call(el, ${JSON.stringify(text)});
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+}
+async function dismissWelcome() {
+  await evaluate(`(() => {
+    const x = [...document.querySelectorAll('button')].find(b => /dismiss/i.test(b.getAttribute('aria-label') || ''));
+    if (x) x.click();
+  })()`);
+}
 async function canvasRect() {
   return evaluate(`(() => {
     const c = document.querySelector('.maplibregl-canvas');
@@ -155,39 +171,45 @@ const cx = c.x + c.w / 2;
 const cy = c.y + c.h / 2;
 console.log(`Recording @ ${W}x${H} (dpr ${DPR}, ${FPS}fps). map ${Math.round(c.w)}x${Math.round(c.h)}`);
 
-// The tour is deliberately low-motion: hold on each state, let transitions carry it.
-// Beat 1 — the H3 conflict-index choropleth (the default analyst workspace).
-await sleep(1800);
-await wheel(cx, cy, -90, 2); // a touch of life
+// The tour follows the app's own workflow: configure a work area → run → review, then
+// the screening altitude. Deliberately low-motion: hold on each state, let transitions
+// carry it. The app opens in "Assess work area" mode on the ticket picker.
+await dismissWelcome();
+await sleep(1200);
+
+// Beat 1 — Step 1: pick a work ticket with several conflicts (the picker filters as we type).
+console.log("· pick a work ticket");
+await setSearch("AUS-100548");
 await sleep(1400);
-// Drill the top-ranked hotspot cell (flashes + flies to it, lists its tickets).
-console.log("· drill top hotspot cell");
-await clickMatch("/conflict rate/");
-await sleep(2600);
+await clickMatch("/AUS-100548/");
+await sleep(2200);
 
-// Beat 2 — Tickets: the network + facilities + ticket evidence list.
-console.log("· switch to Tickets");
-await clickText("Tickets");
-await sleep(2400);
+// Beat 2 — Step 2: set the buffer distance; the AOI previews live (dashed amber) on the map.
+console.log("· set the buffer distance");
+await clickText("250 m");
+await sleep(2200);
 
-// Beat 3 — inspect a flagged ticket: fly to it, show the buffer + why-dossier.
-console.log("· inspect a flagged ticket");
-if (!(await clickMatch("/AUS-100548/"))) await clickMatch("/AUS-/");
+// Beat 3 — Step 3: run the analysis. Results tray opens; conflicts recolor red, AOI solidifies.
+console.log("· run the analysis");
+await clickText("Run analysis");
+await sleep(3200);
+
+// Beat 4 — review the itemized evidence: the conflicting facilities, ranked nearest-first.
+console.log("· review facilities");
+await clickMatch("/^Facilities/");
 await sleep(3000);
 
-// Beat 4 — flip the live conflict rule; the flagged tally recomputes + network recolors.
-console.log("· flip the conflict rule");
-await clickText("Rule");
-await sleep(1400);
-await clickText("All operators");
-await sleep(2400);
-await clickText("In-service only");
-await sleep(2400);
+// Beat 5 — switch to the screening altitude: the H3 conflict-index choropleth.
+console.log("· switch to Screen portfolio");
+await clickText("Screen portfolio");
+await sleep(2000);
+await evaluate(`(() => { const b = document.querySelector('.ml-home-btn'); if (b) b.click(); })()`); // frame the metro
+await sleep(3000);
 
-// Beat 5 — back to the buffer conflict analysis, settle.
-console.log("· buffer conflict");
-await clickText("Analyze");
-await sleep(2400);
+// Beat 6 — drill the top-ranked cell: flies to it, breaks down its metrics + tickets.
+console.log("· drill the top-ranked cell");
+await clickMatch("/Drill into cell/");
+await sleep(3200);
 
 recording = false;
 await grab;
